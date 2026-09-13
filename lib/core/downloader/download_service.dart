@@ -72,6 +72,33 @@ class DownloadService {
     required this.extractionService,
   });
 
+  /// Parses a filename out of a `Content-Disposition` header value,
+  /// preferring the RFC 5987 `filename*=UTF-8''...` form (percent-encoded)
+  /// over the plain `filename="..."` form — RomM's plain form is itself
+  /// sent percent-encoded (e.g. `filename="doom%202.vhd"`), so it is only
+  /// used as a fallback when the extended form is absent.
+  static String? parseContentDispositionFileName(String? header) {
+    if (header == null || header.isEmpty) return null;
+
+    final extendedMatch = RegExp(r"filename\*\s*=\s*UTF-8''([^;]+)", caseSensitive: false).firstMatch(header);
+    if (extendedMatch != null) {
+      final raw = extendedMatch.group(1)!.trim();
+      try {
+        return Uri.decodeComponent(raw);
+      } catch (_) {
+        return raw;
+      }
+    }
+
+    final quotedMatch = RegExp(r'filename\s*=\s*"([^"]+)"', caseSensitive: false).firstMatch(header);
+    if (quotedMatch != null) return quotedMatch.group(1);
+
+    final bareMatch = RegExp(r'filename\s*=\s*([^;]+)', caseSensitive: false).firstMatch(header);
+    if (bareMatch != null) return bareMatch.group(1)!.trim();
+
+    return null;
+  }
+
   Stream<DownloadProgress> download(Game game, String downloadUrl, {Map<String, String>? headers, CancelToken? cancelToken}) async* {
     if (await directoryService.isRomDownloaded(game)) {
       yield DownloadProgress(id: game.id, gameName: game.name, percent: 1.0, isComplete: true);
@@ -171,6 +198,21 @@ class DownloadService {
       }
 
       debugPrint("[DownloadService] Total Bytes to download: $actualTotalBytes, Starting from: $receivedBytes");
+
+      // RomM's pre-fetched metadata (file_name/fs_name/files[]) doesn't always
+      // carry the real extension for single-file-foldered games — sometimes
+      // every one of those fields comes back extensionless. The download
+      // response's Content-Disposition header is the authoritative source
+      // (it reflects the actual file on disk), so use it to fix up the
+      // extension when our best-effort guess above came up empty.
+      if (p.extension(finalPath).isEmpty) {
+        final cdFileName = parseContentDispositionFileName(response.headers.value('content-disposition'));
+        final cdExt = cdFileName != null ? p.extension(cdFileName) : '';
+        if (cdExt.isNotEmpty) {
+          debugPrint("[DownloadService] Correcting extension from Content-Disposition: $cdFileName");
+          finalPath = '$finalPath$cdExt';
+        }
+      }
 
       final sink = await partFile.open(mode: isResuming ? FileMode.append : FileMode.write);
 
