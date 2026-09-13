@@ -521,7 +521,25 @@ class RommService {
           .replaceAll("(", "%28")
           .replaceAll(")", "%29");
     }
-    return '$baseUrl/api/roms/${game.id}/content/$encoded';
+    final url = '$baseUrl/api/roms/${game.id}/content/$encoded';
+
+    // Per RomM's API, the path filename above is only the zip output name -
+    // it does not select which file gets served. The real selector is the
+    // `file_ids` query param, built from files[] (each entry's real database
+    // id). Passing it explicitly avoids relying on the server to guess the
+    // right file from a reconstructed name, which is unreliable for
+    // single-file-foldered roms (see issue #44).
+    if (game.files.isNotEmpty) {
+      final ids = game.files
+          .map((f) => f['id'])
+          .where((id) => id != null)
+          .map((id) => id.toString())
+          .toList();
+      if (ids.isNotEmpty) {
+        return '$url?file_ids=${ids.join(',')}';
+      }
+    }
+    return url;
   }
 
   String get authHeader {

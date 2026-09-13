@@ -161,7 +161,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with LibraryActio
           isDownloaded: isDownloaded,
           rommService: ref.read(rommServiceProvider),
           onLaunch: () => handleLaunch(context, ref, game),
-          onDownload: () => startDownload(context, ref, game),
+          onDownload: (freshGame) async => startDownload(context, ref, freshGame),
           onPushSaves: () => handlePushSaves(context, ref, game),
           onPullSaves: () => handlePullSaves(context, ref, game),
           onDelete: () => handleDeleteRom(context, ref, game),
