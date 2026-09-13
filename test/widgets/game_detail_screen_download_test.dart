@@ -11,8 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Returns [_fullGame] from getGame(), simulating the server response after
 /// a full detail fetch (as GameDetailScreen's _refreshGame() performs).
 class _FakeRommService extends RommService {
-  _FakeRommService(RomMConfig config, this._fullGame)
-      : super(config, skipConnectivityCheck: true);
+  _FakeRommService(super.config, this._fullGame)
+      : super(skipConnectivityCheck: true);
 
   final Game _fullGame;
 
