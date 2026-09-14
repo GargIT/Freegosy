@@ -1,0 +1,27 @@
+# Normalize all text files to LF in the repository and on checkout, on every
+# platform. This overrides each contributor's local core.autocrlf so line
+# endings stay consistent regardless of OS or editor settings.
+* text=auto eol=lf
+
+# Binary files: never touch line endings.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.a binary
+*.lib binary
+*.jar binary
+*.keystore binary
+*.p12 binary
+*.pfx binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+thirdparty/7zz binary
+thirdparty/7zz-linux binary
