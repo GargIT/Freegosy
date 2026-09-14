@@ -70,6 +70,53 @@ void main() {
         expect(url, contains('/api/roms/42/content/'));
         expect(url, contains('game.iso'));
       });
+
+      // Regression for the "DOOM II" bug: RomM's content endpoint treats the
+      // path filename as just the zip output name — the real file selector
+      // is the `file_ids` query param (comma-separated ids from files[]).
+      // When files[] is populated (e.g. after a full getGame() fetch), we
+      // should tell the server exactly which file(s) to serve instead of
+      // relying on it to guess from a reconstructed filename.
+      test('appends file_ids from files[] when present (single-file-foldered game)', () {
+        final game = Game(
+          id: '37337',
+          name: 'DOOM II',
+          fsName: 'doom 2',
+          fsExtension: '',
+          fileSize: 26214912,
+          files: [
+            {'id': 41272, 'file_name': 'doom 2.vhd'},
+          ],
+        );
+        final url = service.getDownloadUrl(game);
+        expect(url, contains('file_ids=41272'));
+      });
+
+      test('joins multiple file ids with a comma', () {
+        final game = Game(
+          id: '10',
+          name: 'Multi Disc Game',
+          fileSize: 1000,
+          hasMultipleFiles: true,
+          files: [
+            {'id': 1, 'file_name': 'disc1.chd'},
+            {'id': 2, 'file_name': 'disc2.chd'},
+          ],
+        );
+        final url = service.getDownloadUrl(game);
+        expect(url, contains('file_ids=1,2'));
+      });
+
+      test('omits file_ids when files[] is empty', () {
+        final game = Game(
+          id: '42',
+          name: 'Test Game',
+          fileName: 'game.iso',
+          fileSize: 1000,
+        );
+        final url = service.getDownloadUrl(game);
+        expect(url, isNot(contains('file_ids')));
+      });
     });
 
     group('resolveCoverUrl', () {

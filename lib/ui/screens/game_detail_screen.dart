@@ -31,7 +31,7 @@ class GameDetailScreen extends ConsumerStatefulWidget {
   final String rommBaseUrl;
   final bool isDownloaded;
   final dynamic onLaunch;
-  final dynamic onDownload;
+  final Future<void> Function(Game game) onDownload;
   final dynamic onPushSaves;
   final dynamic onPullSaves;
   final dynamic onDelete;
@@ -667,7 +667,7 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen> {
               icon: Icons.download, 
               label: 'Download Game', 
               isPrimary: true,
-              onPressed: () async { await widget.onDownload(); _checkDownloadStatus(); }
+              onPressed: () async { await widget.onDownload(_currentGame); _checkDownloadStatus(); }
             ),
           ),
         );
