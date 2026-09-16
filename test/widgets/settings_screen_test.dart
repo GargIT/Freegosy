@@ -81,7 +81,7 @@ void main() {
 
     testWidgets('renders storage section', (WidgetTester tester) async {
       // Set large surface size to avoid ListView lazy loading issues
-      tester.view.physicalSize = const Size(1200, 2000);
+      tester.view.physicalSize = const Size(1200, 2200);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() => tester.view.resetPhysicalSize());
 

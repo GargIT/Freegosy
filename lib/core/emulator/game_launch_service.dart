@@ -4,6 +4,7 @@ import 'dart:io' as io;
 import 'package:path/path.dart' as p;
 import 'package:flutter/foundation.dart';
 import '../storage/app_preferences.dart';
+import '../romm/activity_session_tracker.dart';
 import '../romm/romm_models.dart';
 import '../romm/romm_service.dart';
 import '../romm/rom_constants.dart';
@@ -33,12 +34,24 @@ class RomResolution {
 /// records which emulator actually launched the game, so the post-exit
 /// save sync uses the same emulator's strategy rather than whatever the
 /// platform's global preference happens to be (see issue #79).
+///
+/// [activityTrackerFuture] is started in [GameLaunchService.launch] before
+/// the emulator is even launched, not after — most strategies'
+/// `launchWithHandle` don't return until the emulator has already exited,
+/// so starting it any later would give it no window to run during the
+/// actual play session (issue #93).
 class GameSession {
   final io.Process? process;
   final DateTime sessionStart;
   final String emulatorId;
+  final Future<ActivitySessionTracker?> activityTrackerFuture;
 
-  const GameSession({required this.process, required this.sessionStart, required this.emulatorId});
+  const GameSession({
+    required this.process,
+    required this.sessionStart,
+    required this.emulatorId,
+    required this.activityTrackerFuture,
+  });
 }
 
 /// Outcome of awaiting a launched game's exit and running the post-exit
@@ -159,6 +172,7 @@ class GameLaunchService {
     String? overrideCoreId,
   }) async {
     final sessionStart = DateTime.now();
+    final activityTrackerFuture = _maybeStartActivityTracker(game);
     io.Process? process;
     if (strategy is RetroArchStrategy && overrideCoreId != null) {
       process = await strategy.launchWithHandle(game, romPath, coreName: overrideCoreId);
@@ -167,8 +181,52 @@ class GameLaunchService {
     }
     if (process == null) {
       await strategy.launch(game, romPath);
+      // Fire-and-forget path: callers never call awaitExitAndSync without a
+      // process handle, so nothing else will ever stop this tracker — and
+      // we have no exit signal for it anyway, so stop it right away instead
+      // of leaving it to expire via the server's heartbeat TTL.
+      final tracker = await activityTrackerFuture;
+      if (tracker != null) await tracker.stop();
     }
-    return GameSession(process: process, sessionStart: sessionStart, emulatorId: strategy.emulatorId);
+    return GameSession(
+      process: process,
+      sessionStart: sessionStart,
+      emulatorId: strategy.emulatorId,
+      activityTrackerFuture: activityTrackerFuture,
+    );
+  }
+
+  /// Starts an [ActivitySessionTracker] for [game] if active-session sync
+  /// (issue #93) is enabled, the connected RomM server supports it, and a
+  /// device is registered — else returns null. Non-fatal on any RomM error.
+  Future<ActivitySessionTracker?> _maybeStartActivityTracker(Game game) async {
+    if (rommService == null) {
+      debugPrint('[ActivitySync] skipped: no RommService configured');
+      return null;
+    }
+    if (!(prefs.getBool('romm_active_session_sync') ?? true)) {
+      debugPrint('[ActivitySync] skipped: disabled in Settings');
+      return null;
+    }
+    try {
+      final caps = await rommService!.fetchCapabilities();
+      if (!caps.hasActivitySync) {
+        debugPrint('[ActivitySync] skipped: server capabilities=$caps');
+        return null;
+      }
+      final deviceId = prefs.getString('romm_device_id');
+      if (deviceId == null) {
+        debugPrint('[ActivitySync] skipped: no romm_device_id registered yet');
+        return null;
+      }
+      debugPrint('[ActivitySync] starting for rom ${game.id}, device $deviceId');
+      final tracker = ActivitySessionTracker(rommService!);
+      await tracker.start(romId: game.id, deviceId: deviceId);
+      return tracker;
+    } catch (e) {
+      dev.log('Activity session start failed (non-fatal)', error: e);
+      return null;
+    }
   }
 
   /// Awaits the launched process's exit (no-op if [session.process] is
@@ -187,6 +245,9 @@ class GameLaunchService {
 
     await process.exitCode;
     final sessionEnd = DateTime.now();
+
+    final activityTracker = await session.activityTrackerFuture;
+    if (activityTracker != null) await activityTracker.stop();
 
     final syncOk = await saveSyncService.pushSaves(
       game,

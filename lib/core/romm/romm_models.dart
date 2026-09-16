@@ -420,6 +420,9 @@ class RommCapabilities {
   /// RomM 4.9+ save summary endpoint.
   bool get hasSaveSummary => hasDeviceSaveSync;
 
+  /// RomM 4.9+ real-time "active sessions" heartbeat (issue #93).
+  bool get hasActivitySync => hasDeviceSaveSync;
+
   RommCapabilities({required this.version})
       : major = _parsePart(version, 0),
         minor = _parsePart(version, 1);

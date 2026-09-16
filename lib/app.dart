@@ -184,6 +184,10 @@ class _FreegosyAppState extends ConsumerState<FreegosyApp> {
     ref.watch(fileSanityServiceProvider);
     ref.watch(gamepadServiceProvider);
 
+    // Ensures this install is registered as a RomM 4.9+ device (issue #93,
+    // play-session tracking) — deviceIdProvider does nothing unless watched.
+    ref.watch(deviceIdProvider);
+
     final currentIndex = ref.watch(currentTabIndexProvider);
 
     return ExcludeSemantics(

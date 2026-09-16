@@ -33,6 +33,12 @@ class RommService {
   static String _normalizeBaseUrl(String url) =>
       url.endsWith('/') ? url.substring(0, url.length - 1) : url;
 
+  /// True only for the connectivity/capabilities poll (`GET /api/heartbeat`)
+  /// — NOT `/api/activity/heartbeat` (issue #93), which merely contains the
+  /// same substring. Used to quiet debug logging and skip retries for the
+  /// former without also silencing the latter.
+  static bool _isConnectivityHeartbeat(String path) => path == '/api/heartbeat';
+
   RommService(this._config, {Dio? dio, PlatformInfo? platform, bool skipConnectivityCheck = false})
       : _dio = dio ?? Dio(BaseOptions(
           baseUrl: _normalizeBaseUrl(_config.baseUrl),
@@ -63,14 +69,14 @@ class RommService {
     if (kDebugMode || _platform.isLinux || _platform.isMacOS) {
       _dio.interceptors.add(InterceptorsWrapper(
         onRequest: (options, handler) {
-          if (!options.path.contains('/api/heartbeat') && !options.path.contains('/api/roms')) {
+          if (!_isConnectivityHeartbeat(options.path) && !options.path.contains('/api/roms')) {
             debugPrint('[RomM-Network] -> ${options.method} ${options.uri}');
           }
           return handler.next(options);
         },
         onResponse: (response, handler) {
           final path = response.requestOptions.path;
-          if (!path.contains('/api/heartbeat') && !path.contains('/api/roms')) {
+          if (!_isConnectivityHeartbeat(path) && !path.contains('/api/roms')) {
             debugPrint('[RomM-Network] <- ${response.statusCode} ${response.requestOptions.uri}');
           } else if (path.contains('/api/roms')) {
             final offset = response.requestOptions.queryParameters['offset'] ?? 0;
@@ -80,7 +86,7 @@ class RommService {
           return handler.next(response);
         },
         onError: (e, handler) {
-          if (!e.requestOptions.path.contains('/api/heartbeat')) {
+          if (!_isConnectivityHeartbeat(e.requestOptions.path)) {
             debugPrint('[RomM-Network] ! ERROR ${e.requestOptions.uri}: ${e.message}');
           }
           return handler.next(e);
@@ -92,10 +98,10 @@ class RommService {
       onError: (DioException e, ErrorInterceptorHandler handler) async {
         // Retry logic for transient network errors (especially on Steam Deck wake-up)
         final path = e.requestOptions.path;
-        final isRetryable = e.type != DioExceptionType.cancel && 
+        final isRetryable = e.type != DioExceptionType.cancel &&
                           e.type != DioExceptionType.badResponse &&
-                          !path.contains('/api/heartbeat');
-        
+                          !_isConnectivityHeartbeat(path);
+
         if (isRetryable && e.requestOptions.extra['retry_count'] == null) {
           e.requestOptions.extra['retry_count'] = 0;
         }
@@ -757,25 +763,80 @@ class RommService {
     required DateTime endTime,
   }) async {
     try {
+      final id = int.tryParse(romId);
+      if (id == null) return;
+
       final durationMs = endTime.difference(startTime).inMilliseconds;
       if (durationMs <= 0) return;
 
       await _dio.post(
         '/api/play-sessions',
-        data: [
-          {
-            'rom_id': romId,
-            'device_id': deviceId,
-            'start_time': startTime.toUtc().toIso8601String(),
-            'end_time': endTime.toUtc().toIso8601String(),
-            'duration_ms': durationMs,
-          }
-        ],
+        data: {
+          'device_id': deviceId,
+          'sessions': [
+            {
+              'rom_id': id,
+              'start_time': startTime.toUtc().toIso8601String(),
+              'end_time': endTime.toUtc().toIso8601String(),
+              'duration_ms': durationMs,
+            }
+          ],
+        },
         options: _authOptions.copyWith(contentType: 'application/json'),
       );
       debugPrint('[RomM] Recorded play session for rom $romId: ${durationMs}ms');
     } catch (e) {
       debugPrint('[RomM] recordPlaySession error (non-fatal): $e');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Active session heartbeat (RomM 4.9+, issue #93)
+  // ---------------------------------------------------------------------------
+
+  /// Pings RomM's real-time "active sessions" board so other clients (the
+  /// web UI, dashboard integrations, etc.) see this device as currently
+  /// playing [romId]. Call once on launch, then repeat periodically while
+  /// the game is running — the server expires the entry ~90s after the last
+  /// heartbeat. Silently no-ops on errors; this is cosmetic only.
+  Future<void> sendActivityHeartbeat({required String romId, required String deviceId}) async {
+    final id = int.tryParse(romId);
+    if (id == null) {
+      debugPrint('[RomM] sendActivityHeartbeat skipped: romId "$romId" is not numeric');
+      return;
+    }
+    try {
+      await _dio.post(
+        '/api/activity/heartbeat',
+        data: {'rom_id': id, 'device_id': deviceId},
+        options: _authOptions.copyWith(
+          contentType: 'application/json',
+          sendTimeout: const Duration(seconds: 5),
+          receiveTimeout: const Duration(seconds: 5),
+        ),
+      );
+      debugPrint('[RomM] sendActivityHeartbeat ok (rom $id, device $deviceId)');
+    } catch (e) {
+      debugPrint('[RomM] sendActivityHeartbeat error (non-fatal): $e');
+    }
+  }
+
+  /// Immediately clears this device's active session (e.g. on game exit),
+  /// rather than waiting out the server's heartbeat TTL. Silently no-ops on
+  /// errors; this is cosmetic only.
+  Future<void> clearActivityHeartbeat({required String deviceId}) async {
+    try {
+      await _dio.delete(
+        '/api/activity/heartbeat',
+        queryParameters: {'device_id': deviceId},
+        options: _authOptions.copyWith(
+          sendTimeout: const Duration(seconds: 5),
+          receiveTimeout: const Duration(seconds: 5),
+        ),
+      );
+      debugPrint('[RomM] clearActivityHeartbeat ok (device $deviceId)');
+    } catch (e) {
+      debugPrint('[RomM] clearActivityHeartbeat error (non-fatal): $e');
     }
   }
 

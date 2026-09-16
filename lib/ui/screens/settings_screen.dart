@@ -648,6 +648,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Widget _buildRommServerSection(BuildContext context, WidgetRef ref, RommService? rommService, RomMConfig rommConfig) {
     final theme = Theme.of(context);
+    final activeSessionSyncEnabled = ref.watch(rommActiveSessionSyncProvider);
     return _buildSectionCard(
       context: context,
       title: 'RomM Server',
@@ -720,6 +721,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             subtitle: 'Enable if your RomM server uses a self-signed SSL certificate',
             value: _trustSelfSigned,
             onChanged: !_isEditingServer ? null : (val) => setState(() => _trustSelfSigned = val),
+          ),
+          const SizedBox(height: 16),
+          _buildCustomToggleRow(
+            context,
+            title: 'Sync Active Sessions',
+            subtitle: 'Let RomM show this device as "currently playing" while a game is running',
+            value: activeSessionSyncEnabled,
+            onChanged: (val) => ref.read(rommActiveSessionSyncProvider.notifier).update(val),
           ),
           const SizedBox(height: 16),
           if (_connectionAppError != null)
