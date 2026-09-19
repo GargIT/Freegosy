@@ -85,6 +85,14 @@ void main() {
         final caps = RommCapabilities(version: '4.9.0');
         expect(caps.hasSaveSummary, caps.hasDeviceSaveSync);
       });
+
+      test('hasActivitySync matches hasDeviceSaveSync', () {
+        final caps49 = RommCapabilities(version: '4.9.0');
+        expect(caps49.hasActivitySync, caps49.hasDeviceSaveSync);
+
+        final caps48 = RommCapabilities(version: '4.8.1');
+        expect(caps48.hasActivitySync, caps48.hasDeviceSaveSync);
+      });
     });
 
     group('toString', () {

@@ -194,6 +194,10 @@ final edenBuildTypeProvider = createPersistentProvider<String>('eden_build_type'
 final retroarchNdsCoreProvider = createPersistentProvider<String>('retroarch_nds_core', 'melonds');
 final perGameLauncherEnabledProvider = createPersistentProvider<bool>('per_game_launcher_enabled', true);
 
+/// Whether Freegosy pings RomM's real-time "active sessions" board while a
+/// game is running (issue #93). Opt-out, enabled by default.
+final rommActiveSessionSyncProvider = createPersistentProvider<bool>('romm_active_session_sync', true);
+
 // RetroArch favorite cores (JSON-encoded list of core IDs)
 final retroarchFavoriteCoresProvider = StateNotifierProvider<_FavoriteCoresNotifier, List<String>>((ref) {
   return _FavoriteCoresNotifier(ref.watch(sharedPreferencesProvider));
