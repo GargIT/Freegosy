@@ -174,19 +174,25 @@ class GameLaunchService {
     final sessionStart = DateTime.now();
     final activityTrackerFuture = _maybeStartActivityTracker(game);
     io.Process? process;
-    if (strategy is RetroArchStrategy && overrideCoreId != null) {
-      process = await strategy.launchWithHandle(game, romPath, coreName: overrideCoreId);
-    } else {
-      process = await strategy.launchWithHandle(game, romPath);
-    }
-    if (process == null) {
-      await strategy.launch(game, romPath);
-      // Fire-and-forget path: callers never call awaitExitAndSync without a
-      // process handle, so nothing else will ever stop this tracker — and
-      // we have no exit signal for it anyway, so stop it right away instead
-      // of leaving it to expire via the server's heartbeat TTL.
-      final tracker = await activityTrackerFuture;
-      if (tracker != null) await tracker.stop();
+    try {
+      if (strategy is RetroArchStrategy && overrideCoreId != null) {
+        process = await strategy.launchWithHandle(game, romPath, coreName: overrideCoreId);
+      } else {
+        process = await strategy.launchWithHandle(game, romPath);
+      }
+      if (process == null) {
+        await strategy.launch(game, romPath);
+        // Fire-and-forget path: callers never call awaitExitAndSync without
+        // a process handle, so nothing else will ever stop this tracker —
+        // and we have no exit signal for it anyway, so stop it right away
+        // instead of leaving it to expire via the server's heartbeat TTL.
+        await (await activityTrackerFuture)?.stop();
+      }
+    } catch (_) {
+      // A failed launch (e.g. emulator not installed) never yields a
+      // GameSession, so nothing would ever stop the already-started tracker.
+      await (await activityTrackerFuture)?.stop();
+      rethrow;
     }
     return GameSession(
       process: process,
