@@ -27,6 +27,7 @@ import '../widgets/retroarch_core_picker_dialog.dart';
 import '../widgets/windows_game_config_dialog.dart';
 import '../widgets/multi_disc_picker.dart';
 import '../../core/save/save_sync_service.dart';
+import '../../core/save/state_sync_service.dart';
 import './library_dialog_service.dart';
 import '../widgets/focus_effect_wrapper.dart';
 
@@ -387,6 +388,33 @@ mixin LibraryActionsMixin<T extends ConsumerStatefulWidget> on ConsumerState<T> 
     }
 
     if (!context.mounted) return;
+
+    // Save states: pull before launch and AWAIT it (unlike the save pull below)
+    // so a conflict dialog can still influence what the user is about to play.
+    // Never blocks on failure: a network error just launches with local states,
+    // and nothing in here (not even resolving the service) can abort the launch.
+    // An offline RomM skips the pull altogether so launching stays instant; the
+    // service also bounds its list call, for a server that is up but not answering.
+    try {
+      final stateSync = await ref.read(stateSyncServiceProvider.future);
+      if (!context.mounted) return;
+      if (stateSync != null && stateSync.isAvailableFor(game, emulatorId: strategy.emulatorId)) {
+        if (_rommOffline(ref)) {
+          debugPrint('[StateSync] RomM is offline — skipping the pre-launch state pull');
+        } else {
+          ErrorHandler.showInfo(context, 'Syncing', message: 'Checking save states...');
+          final pull = await stateSync.pullStates(game, romPath, emulatorId: strategy.emulatorId);
+          if (context.mounted) await _resolveStateConflicts(context, stateSync, pull.conflicts);
+        }
+      } else {
+        debugPrint('[StateSync] not running for ${game.name}: '
+            '${_stateSyncUnavailableReason(stateSync, game, emulatorId: strategy.emulatorId)}');
+      }
+    } catch (e) {
+      debugPrint('[StateSync] Pre-launch pull failed: $e');
+    }
+    if (!context.mounted) return;
+
     // Pull save in background — don't block the launch.
     // Previously, the save pull was a blocking await (10-15s of HTTP requests
     // before the emulator started). Now it's fire-and-forget: the save is
@@ -440,6 +468,15 @@ mixin LibraryActionsMixin<T extends ConsumerStatefulWidget> on ConsumerState<T> 
             if (!context.mounted || result == null) return;
             if (result.syncOk) ErrorHandler.showSuccess(context, 'Save Synced', message: 'Saves synced');
             else ErrorHandler.showSuccess(context, 'Up to Date', message: 'No files to upload');
+            if (result.stateConflictCount > 0) {
+              ErrorHandler.showWithAction(context, 'Save State Conflict',
+                  message: '${result.stateConflictCount} save state(s) changed on both this PC and RomM. Press Resolve to choose which copy to keep.',
+                  severity: ErrorSeverity.warning,
+                  actionLabel: 'Resolve',
+                  onAction: () {
+                    if (context.mounted) handleSyncStates(context, ref, game);
+                  });
+            }
           } catch (_) {}
         }));
       }
@@ -547,6 +584,103 @@ mixin LibraryActionsMixin<T extends ConsumerStatefulWidget> on ConsumerState<T> 
       ref.read(downloadedGamesCacheProvider.notifier).refresh();
       if (context.mounted) ErrorHandler.showSuccess(context, 'ROM Deleted', message: 'Local files removed.');
     } catch (e) { if (context.mounted) ErrorHandler.showException(context, e, contextLabel: 'Delete Failed'); }
+  }
+
+  Future<void> handleSyncStates(BuildContext context, WidgetRef ref, Game game) async {
+    final stateSync = await ref.read(stateSyncServiceProvider.future);
+    if (!context.mounted) return;
+    if (stateSync == null || !stateSync.isAvailableFor(game)) {
+      debugPrint('[StateSync] not running for ${game.name}: '
+          '${_stateSyncUnavailableReason(stateSync, game)}');
+      ErrorHandler.showInfo(context, 'Sync Unavailable', message: 'Save state sync is not enabled for this emulator.');
+      return;
+    }
+    // Fail fast like the pre-launch pull does, instead of waiting out the list timeout.
+    if (_rommOffline(ref)) {
+      debugPrint('[StateSync] manual sync skipped for ${game.name}: RomM is offline');
+      ErrorHandler.showInfo(context, 'RomM offline', message: 'Save state sync needs a connection to RomM.');
+      return;
+    }
+    final dir = ref.read(directoryServiceProvider).asData?.value;
+    String romPath = '';
+    if (dir != null) {
+      romPath = await dir.findExistingRomPath(game) ?? await dir.getRomFilePath(game);
+    }
+    if (!context.mounted) return;
+    ErrorHandler.showInfo(context, 'Syncing', message: 'Syncing save states for ${game.name}...');
+    try {
+      final pull = await stateSync.pullStates(game, romPath);
+      if (!context.mounted) return;
+      if (pull.busy) {
+        _showSyncBusy(context, game);
+        return;
+      }
+      await _resolveStateConflicts(context, stateSync, pull.conflicts);
+      if (!context.mounted) return;
+      final push = await stateSync.pushStates(game, romPath);
+      if (!context.mounted) return;
+      if (push.busy) {
+        _showSyncBusy(context, game);
+        return;
+      }
+      // A slot the user just cancelled shows up again in the push result: ask once.
+      final newConflicts = push.conflicts
+          .where((c) => !pull.conflicts.any((earlier) => earlier.fileName == c.fileName))
+          .toList();
+      await _resolveStateConflicts(context, stateSync, newConflicts);
+      if (!context.mounted) return;
+      if (pull.skipped && push.skipped) {
+        // The service could not even start (game not identified, state folder
+        // not found): don't report that as a successful "0 downloaded" sync.
+        ErrorHandler.showInfo(context, 'Nothing to sync',
+            message: "Couldn't identify the game or find the save state folder for ${game.name}.");
+        return;
+      }
+      ErrorHandler.showSuccess(context, 'States Synced',
+          message: '${pull.downloaded} downloaded, ${push.uploaded} uploaded');
+    } catch (e) {
+      if (context.mounted) ErrorHandler.showException(context, e, contextLabel: 'State Sync Failed');
+    }
+  }
+
+  /// Why no state sync runs for [game], for the log.
+  String _stateSyncUnavailableReason(StateSyncService? stateSync, Game game,
+          {String? emulatorId}) =>
+      stateSync == null
+          ? 'RomM/save-sync service not available'
+          : stateSync.availabilityReason(game, emulatorId: emulatorId);
+
+  /// True when RomM is known to be unreachable, so a state sync would only
+  /// wait out its list timeout.
+  bool _rommOffline(WidgetRef ref) =>
+      ref.read(rommServiceProvider)?.isOffline.value == true;
+
+  /// Another state sync for [game] (e.g. the post-exit push) is still running,
+  /// so this one did nothing.
+  void _showSyncBusy(BuildContext context, Game game) {
+    ErrorHandler.showInfo(context, 'Sync already running',
+        message: 'Another save state sync for ${game.name} is still running. Try again in a moment.');
+  }
+
+  /// Asks about each conflicting state in turn. Cancelling keeps the local
+  /// file and leaves the slot flagged (push skips it until resolved).
+  Future<void> _resolveStateConflicts(
+      BuildContext context, StateSyncService stateSync, List<StateConflict> conflicts) async {
+    for (final conflict in conflicts) {
+      if (!context.mounted) return;
+      final choice = await LibraryDialogService.showStateConflictDialog(context, conflict);
+      if (choice == null) continue;
+      final ok = await stateSync.resolveConflict(conflict, choice: choice);
+      if (context.mounted) {
+        ErrorHandler.showInfo(
+          context,
+          ok ? 'Sync Resolved' : 'Sync Failed',
+          message: ok
+              ? (choice == 'local' ? 'Local state uploaded' : 'Cloud state restored')
+              : 'Could not resolve ${conflict.fileName}',
+        );
+      }
+    }
   }
 
   Future<void> handlePushSaves(BuildContext context, WidgetRef ref, Game game) async {
