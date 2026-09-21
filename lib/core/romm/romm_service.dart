@@ -11,8 +11,9 @@ import '../platform/platform_info.dart';
 import '../storage/app_preferences.dart';
 import '../storage/secure_storage_service.dart';
 import 'romm_models.dart';
+import 'romm_state.dart';
 
-class RommService {
+class RommService implements RommStatesApi {
   RomMConfig _config;
   final Dio _dio;
   Options _authOptions;
@@ -100,6 +101,7 @@ class RommService {
         final path = e.requestOptions.path;
         final isRetryable = e.type != DioExceptionType.cancel &&
                           e.type != DioExceptionType.badResponse &&
+                          e.requestOptions.extra['no_retry'] != true &&
                           !_isConnectivityHeartbeat(path);
 
         if (isRetryable && e.requestOptions.extra['retry_count'] == null) {
@@ -740,6 +742,91 @@ class RommService {
     } catch (e) {
       debugPrint('[RomM] downloadSave error: $e');
       return null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Save states (/api/states) — per RomM user, private by default
+  // ---------------------------------------------------------------------------
+
+  Options get _stateOptions => _authOptions.copyWith(
+        sendTimeout: const Duration(minutes: 5),
+        receiveTimeout: const Duration(minutes: 5),
+      );
+
+  /// How long a state download may go without receiving data before it fails.
+  /// Dio's receive timeout is the longest gap between data events, not a limit
+  /// on the whole transfer, so a slow download that keeps progressing still
+  /// finishes. Downloads run before launch (awaited), so a stalled server must
+  /// not hold them for the 5 minutes uploads are allowed.
+  static const Duration stateDownloadInactivityTimeout = Duration(seconds: 30);
+
+  /// Options for [downloadState]: the short inactivity bound, and no retries
+  /// (the sync stops at the first failed download instead).
+  Options get _stateDownloadOptions => _authOptions.copyWith(
+        responseType: ResponseType.bytes,
+        receiveTimeout: stateDownloadInactivityTimeout,
+        extra: {'no_retry': true},
+      );
+
+  @override
+  Future<List<RommState>> listStates(String romId) async {
+    final response = await _dio.get('/api/states',
+        queryParameters: {'rom_id': romId}, options: _authOptions);
+    final data = response.data;
+    final List<dynamic> items = data is Map
+        ? (data['items'] as List<dynamic>? ?? const [])
+        : (data as List<dynamic>? ?? const []);
+    return items
+        .whereType<Map<String, dynamic>>()
+        .map(RommState.fromJson)
+        .toList();
+  }
+
+  @override
+  Future<RommState> uploadState(String romId, io.File file,
+      {required String fileName}) async {
+    final response = await _dio.post(
+      '/api/states',
+      queryParameters: {'rom_id': romId, 'emulator': 'freegosy'},
+      data: FormData.fromMap({
+        'stateFile': await MultipartFile.fromFile(file.path, filename: fileName),
+      }),
+      options: _stateOptions,
+    );
+    return RommState.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<RommState> updateState(int stateId, io.File file,
+      {required String fileName}) async {
+    try {
+      final response = await _dio.put(
+        '/api/states/$stateId',
+        data: FormData.fromMap({
+          'stateFile':
+              await MultipartFile.fromFile(file.path, filename: fileName),
+        }),
+        options: _stateOptions,
+      );
+      return RommState.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) throw RommStateNotFoundException(stateId);
+      rethrow;
+    }
+  }
+
+  @override
+  Future<Uint8List> downloadState(int stateId) async {
+    try {
+      final response = await _dio.get<List<int>>(
+        '/api/states/$stateId/content',
+        options: _stateDownloadOptions,
+      );
+      return Uint8List.fromList(List<int>.from(response.data ?? const <int>[]));
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) throw RommStateNotFoundException(stateId);
+      rethrow;
     }
   }
 
