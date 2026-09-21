@@ -23,6 +23,8 @@ app = Flask(__name__)
 # In-memory stores
 # ---------------------------------------------------------------------------
 SAVES = {}          # {save_id: save_record}
+STATES = {}         # {state_id: state_record}
+NEXT_STATE_ID = 1
 DEVICES = {}        # {device_id: device_record}
 SYNC_SESSIONS = {}  # {session_id: session_record}
 NEXT_SAVE_ID = 1
@@ -557,6 +559,108 @@ def sync_negotiate():
 
 
 # ---------------------------------------------------------------------------
+# Save states (matches RomM /api/states — per user, private by default)
+# ---------------------------------------------------------------------------
+
+def _state_to_response(state):
+    return {
+        "id": state["id"],
+        "rom_id": int(state["rom_id"]),
+        "file_name": state["file_name"],
+        "file_size_bytes": state["size"],
+        "emulator": state["emulator"],
+        "is_public": False,
+        "created_at": state["created_at"],
+        "updated_at": state["updated_at"],
+        "download_path": f"/api/states/{state['id']}/content",
+    }
+
+
+def _store_state_bytes(state_id, content):
+    (STORAGE_DIR / f"state_{state_id}.bin").write_bytes(content)
+
+
+@app.route("/api/states", methods=["POST"])
+def upload_state():
+    global NEXT_STATE_ID
+    rom_id = request.args.get("rom_id")
+    state_file = request.files.get("stateFile")
+    if rom_id is None or state_file is None:
+        return jsonify({"detail": "rom_id and stateFile are required"}), 400
+
+    content = state_file.read()
+    now = datetime.now(timezone.utc).isoformat()
+    log_request("POST /api/states", {
+        "rom_id": rom_id,
+        "emulator": request.args.get("emulator"),
+        "file_name": state_file.filename,
+        "content_size": len(content),
+    })
+
+    # RomM upserts on (rom_id, file_name): a second POST under the same name
+    # replaces the bytes and keeps the id. (Reported by other clients; Freegosy
+    # does not rely on it — it looks the name up and PUTs.)
+    for state in STATES.values():
+        if state["rom_id"] == rom_id and state["file_name"] == state_file.filename:
+            state.update(size=len(content), updated_at=now,
+                         emulator=request.args.get("emulator"))
+            _store_state_bytes(state["id"], content)
+            return jsonify(_state_to_response(state))
+
+    state_id = NEXT_STATE_ID
+    NEXT_STATE_ID += 1
+    STATES[state_id] = {
+        "id": state_id, "rom_id": rom_id, "file_name": state_file.filename,
+        "size": len(content), "emulator": request.args.get("emulator"),
+        "created_at": now, "updated_at": now,
+    }
+    _store_state_bytes(state_id, content)
+    return jsonify(_state_to_response(STATES[state_id]))
+
+
+@app.route("/api/states", methods=["GET"])
+def list_states():
+    rom_id = request.args.get("rom_id")
+    return jsonify([
+        _state_to_response(s) for s in STATES.values()
+        if rom_id is None or s["rom_id"] == rom_id
+    ])
+
+
+@app.route("/api/states/<int:state_id>", methods=["PUT"])
+def update_state(state_id):
+    state = STATES.get(state_id)
+    if state is None:
+        return jsonify({"detail": "State not found"}), 404
+    state_file = request.files.get("stateFile")
+    if state_file is None:
+        return jsonify({"detail": "stateFile is required"}), 400
+    content = state_file.read()
+    log_request("PUT /api/states/<id>", {"state_id": state_id, "content_size": len(content)})
+    state.update(size=len(content), updated_at=datetime.now(timezone.utc).isoformat())
+    _store_state_bytes(state_id, content)
+    return jsonify(_state_to_response(state))
+
+
+@app.route("/api/states/<int:state_id>/content", methods=["GET"])
+def download_state(state_id):
+    if state_id not in STATES:
+        return jsonify({"detail": "State not found"}), 404
+    return send_file(STORAGE_DIR / f"state_{state_id}.bin")
+
+
+@app.route("/api/states/delete", methods=["POST"])
+def delete_states():
+    ids = (request.get_json(silent=True) or {}).get("states", [])
+    deleted = []
+    for state_id in ids:
+        if STATES.pop(state_id, None) is not None:
+            (STORAGE_DIR / f"state_{state_id}.bin").unlink(missing_ok=True)
+            deleted.append(state_id)
+    return jsonify(deleted)
+
+
+# ---------------------------------------------------------------------------
 # Debug endpoints
 # ---------------------------------------------------------------------------
 
@@ -572,8 +676,10 @@ def debug_log():
 
 @app.route("/debug/clear", methods=["POST"])
 def debug_clear():
-    global NEXT_SAVE_ID, NEXT_SESSION_ID, SAVES, REQUEST_LOG, DEVICES, SYNC_SESSIONS
+    global NEXT_SAVE_ID, NEXT_SESSION_ID, SAVES, REQUEST_LOG, DEVICES, SYNC_SESSIONS, STATES, NEXT_STATE_ID
     SAVES = {}
+    STATES = {}
+    NEXT_STATE_ID = 1
     DEVICES = {}
     SYNC_SESSIONS = {}
     REQUEST_LOG = []
@@ -595,6 +701,11 @@ if __name__ == "__main__":
     print(f"  GET    /api/saves/<id>/content   - Download save")
     print(f"  POST   /api/saves/<id>/downloaded - Confirm download")
     print(f"  POST   /api/saves/delete        - Delete saves")
+    print(f"  POST   /api/states              - Upload save state")
+    print(f"  GET    /api/states              - List save states")
+    print(f"  PUT    /api/states/<id>         - Update save state")
+    print(f"  GET    /api/states/<id>/content - Download save state")
+    print(f"  POST   /api/states/delete       - Delete save states")
     print(f"  POST   /api/devices             - Register device")
     print(f"  POST   /api/sync/negotiate      - Negotiate sync")
     print(f"  GET    /api/heartbeat           - Capabilities")
