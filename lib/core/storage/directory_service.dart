@@ -405,8 +405,15 @@ class DirectoryService {
     // with no extension (e.g. PS2 .iso, NDS .nds) even though fs_extension is
     // populated fine (issue #96 — distinct from the empty-fs_extension case
     // already handled in DownloadService for single-file-foldered games).
+    //
+    // Compare with endsWith rather than p.extension(): the latter only sees the
+    // last dot, so a compound extension like "sfc.zip" on a name that already
+    // carries it ("Game.sfc.zip") never matched and got appended a second time
+    // (issue #108).
     final ext = game.fsExtension;
-    final fileName = (ext != null && ext.isNotEmpty && p.extension(baseName).toLowerCase() != '.${ext.toLowerCase()}')
+    final hasExt = ext != null && ext.isNotEmpty &&
+        baseName.toLowerCase().endsWith('.${ext.toLowerCase()}');
+    final fileName = (ext != null && ext.isNotEmpty && !hasExt)
         ? '$baseName.$ext'
         : baseName;
     return p.join(romDir, fileName);
