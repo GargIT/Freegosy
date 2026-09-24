@@ -82,3 +82,6 @@ testing/config/
 
 # VS Code related
 .vscode/
+
+# Brainstorming companion (local mockups)
+.superpowers/
