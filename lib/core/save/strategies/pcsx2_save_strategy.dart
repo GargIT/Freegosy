@@ -8,11 +8,14 @@ import '../../romm/romm_models.dart';
 import '../../storage/app_preferences.dart';
 import '../../storage/directory_service.dart';
 import '../save_strategy.dart';
+import '../state_sync_capable.dart';
 
 /// Save strategy for PCSX2 (PlayStation 2).
 /// Memcards: {systemDir}/memcards/*.ps2
-/// States:   {systemDir}/sstates/{stem}.*.
-class Pcsx2SaveStrategy extends SaveStrategy {
+/// States:   {systemDir}/sstates/{SERIAL (CRC).NN.p2s} — synced separately
+///           through [StateSyncCapable] / StateSyncService, not by this
+///           strategy's save methods.
+class Pcsx2SaveStrategy extends SaveStrategy with StateSyncCapable {
   final DirectoryService _directoryService;
   final PlatformInfo _platform;
   final SerialExtractionService _serialExtractionService;
@@ -59,6 +62,80 @@ class Pcsx2SaveStrategy extends SaveStrategy {
     if (_platform.isMacOS) return 'PCSX2.app/Contents/MacOS/PCSX2';
     return 'pcsx2-qt';
   }
+
+  /// PCSX2's own state naming: `SERIAL (CRC).NN.p2s` or
+  /// `SERIAL (CRC).resume.p2s` (VMManager::GetSaveStateFileName). The
+  /// character class excludes path separators; `.p2s.backup` doesn't match.
+  static final _stateFilePattern = RegExp(
+      r'^([A-Za-z0-9_-]+) \([0-9A-Fa-f]{8}\)\.(?:\d{2}|resume)\.p2s$');
+
+  /// Only PCSX2's resume slot (`SERIAL (CRC).resume.p2s`), never a numbered
+  /// quick-save slot.
+  static final _resumeStatePattern = RegExp(
+      r'^([A-Za-z0-9_-]+) \([0-9A-Fa-f]{8}\)\.resume\.p2s$');
+
+  /// Anything smaller than this is not a usable state (same threshold as
+  /// StateSyncService.minValidStateBytes).
+  @visibleForTesting
+  static const int minAutoLoadStateBytes = 100;
+
+  static String _serialKey(String serial) =>
+      serial.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+
+  @override
+  Future<String> stateDirectory(Game game, String romPath) async {
+    final root = await _getSaveRoot();
+    final isEmuDeck = p.basename(root) == 'saves';
+    return isEmuDeck
+        ? p.join(p.dirname(root), 'states')
+        : p.join(root, 'sstates');
+  }
+
+  @override
+  Future<bool Function(String fileName)?> stateFileMatcher(
+      Game game, String romPath) async {
+    final serial = await _extractSerial(romPath);
+    if (serial == null) return null;
+    final wanted = _serialKey(serial);
+    return (String fileName) {
+      final match = _stateFilePattern.firstMatch(fileName);
+      return match != null && _serialKey(match.group(1)!) == wanted;
+    };
+  }
+
+  @override
+  Future<io.File?> autoLoadState(Game game, String romPath) async {
+    try {
+      final serial = await _extractSerial(romPath);
+      if (serial == null) return null;
+      final wanted = _serialKey(serial);
+      final directory = io.Directory(await stateDirectory(game, romPath));
+      if (!directory.existsSync()) return null;
+
+      io.File? newest;
+      DateTime? newestModified;
+      for (final entity in directory.listSync(followLinks: false)) {
+        if (entity is! io.File) continue;
+        final match = _resumeStatePattern.firstMatch(p.basename(entity.path));
+        if (match == null || _serialKey(match.group(1)!) != wanted) continue;
+        if (entity.lengthSync() < minAutoLoadStateBytes) continue;
+        final modified = entity.lastModifiedSync();
+        if (newestModified == null || modified.isAfter(newestModified)) {
+          newest = entity;
+          newestModified = modified;
+        }
+      }
+      return newest;
+    } catch (e) {
+      debugPrint('[PCSX2] autoLoadState failed: $e');
+      return null;
+    }
+  }
+
+  /// `.p2s` files are zip archives.
+  @override
+  bool looksLikeValidState(Uint8List bytes) =>
+      bytes.length >= 4 && bytes[0] == 0x50 && bytes[1] == 0x4B;
 
   Future<String> _getSaveRoot() async {
     // 1. Check portable mode first — memcards folder next to exe (Windows)
@@ -262,28 +339,6 @@ class Pcsx2SaveStrategy extends SaveStrategy {
       }
     }
 
-    // --- Save states (stem-matched, both layers) ---
-    if (syncMode == 'states' || syncMode == 'both') {
-      final stem = getRomStem(game);
-      final statesDir = io.Directory(
-          isEmuDeck ? p.join(p.dirname(root), 'states') : p.join(root, 'sstates'));
-      if (await statesDir.exists()) {
-        debugPrint('[PCSX2]   scanning save states at: ${statesDir.path} (stem=$stem)');
-        await for (final entity in statesDir.list()) {
-          if (entity is! io.File) continue;
-          if (!p.basename(entity.path).contains(stem)) continue;
-          if (sessionStart != null) {
-            final stat = await entity.stat();
-            if (stat.modified
-                .isBefore(sessionStart.subtract(const Duration(seconds: 2)))) {
-              continue;
-            }
-          }
-          result.add(entity);
-        }
-      }
-    }
-
     debugPrint('[PCSX2]   → ${result.length} save file(s) returned');
     return result;
   }
@@ -457,11 +512,11 @@ class Pcsx2SaveStrategy extends SaveStrategy {
             final targetFilename = _normalizeMemcardFilename(p.basename(entry.name));
             targetPath = p.normalize(p.join(memcardsDir, targetFilename));
           } else {
-            // Save state
-            final statesDir = isEmuDeck
-                ? p.join(p.dirname(root), 'states')
-                : p.join(root, 'sstates');
-            targetPath = p.normalize(p.join(statesDir, p.basename(entry.name)));
+            // Not a memory-card shape. Older Freegosy versions bundled PCSX2
+            // save states (`*.p2s`) into the game-save zip; states now sync
+            // separately through StateSyncService, so never write them here.
+            debugPrint('[PCSX2]   skipping non-memcard entry: ${entry.name}');
+            continue;
           }
 
           if (!targetIsInsideManagedMemcardFolder) await backupSave(targetPath);
@@ -473,11 +528,11 @@ class Pcsx2SaveStrategy extends SaveStrategy {
       }
 
       // Single file fallback
-      final isState = filename.contains('.') &&
-          int.tryParse(filename.split('.').last) != null;
-      final targetDir = isState 
-          ? (isEmuDeck ? p.join(p.dirname(root), 'states') : p.join(root, 'sstates'))
-          : (isEmuDeck ? root : p.join(root, 'memcards'));
+      if (_stateFilePattern.hasMatch(p.basename(filename))) {
+        debugPrint('[PCSX2]   ignoring legacy save-state upload: $filename');
+        return true;
+      }
+      final targetDir = isEmuDeck ? root : p.join(root, 'memcards');
       
       final normalizedFilename = filename.toLowerCase().endsWith('.ps2')
           ? _normalizeMemcardFilename(filename)

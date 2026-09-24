@@ -20,6 +20,28 @@ abstract class EmulatorStrategy {
   String get macosExecutable => windowsExecutable;
   bool get supportsSaveSync;
 
+  /// Whether this emulator's save states can be synced through RomM's states
+  /// API. Only true where the matching save strategy implements
+  /// `StateSyncCapable` (a unit test enforces that they agree).
+  bool get supportsStateSync => false;
+
+  /// Whether this emulator can boot straight into a save state given on its
+  /// command line (see [stateLoadArgs]). Only true where the matching save
+  /// strategy implements `StateSyncCapable.autoLoadState` (a unit test enforces
+  /// that they agree).
+  ///
+  /// `GameLaunchService` passes the state arguments to [launchWithExtraArgs] /
+  /// [launchWithHandleAndExtraArgs] for each launch, so an emulator that
+  /// supports auto-load must not override [launch] or [launchWithHandle] in a
+  /// way that skips the base implementation; override the `...ExtraArgs`
+  /// variants instead. Nothing per-launch is stored on the strategy: it is one
+  /// shared instance and launches can overlap.
+  bool get supportsStateAutoLoad => false;
+
+  /// Command-line arguments that make the emulator load the state at
+  /// [statePath]. Only used when [supportsStateAutoLoad] is true.
+  List<String> stateLoadArgs(String statePath) => const [];
+
   /// The directory service used for finding and launching emulators.
   DirectoryService get directoryService;
 
@@ -39,23 +61,37 @@ abstract class EmulatorStrategy {
     );
   }
 
-  Future<void> launch(Game game, String romPath) async {
+  Future<void> launch(Game game, String romPath) => launchWithExtraArgs(game, romPath);
+
+  Future<Process?> launchWithHandle(Game game, String romPath) =>
+      launchWithHandleAndExtraArgs(game, romPath);
+
+  /// [launch] with [extraArgs] (e.g. [stateLoadArgs]) appended to [launchArgs]
+  /// for this launch only. Subclasses that support state auto-load override
+  /// this rather than [launch] (see [supportsStateAutoLoad]).
+  Future<void> launchWithExtraArgs(Game game, String romPath,
+      {List<String> extraArgs = const []}) async {
     final exePath = await findExecutable();
     if (exePath == null) throw Exception('$name not found. Please download it first.');
 
     final normalizedRomPath = p.absolute(p.normalize(romPath));
     await preLaunch(game, romPath);
-    await directoryService.launchGame(game, normalizedRomPath, emulatorId, exePath, args: launchArgs);
+    await directoryService.launchGame(game, normalizedRomPath, emulatorId, exePath, args: [...launchArgs, ...extraArgs]);
     await postLaunch(game, romPath);
   }
 
-  Future<Process?> launchWithHandle(Game game, String romPath) async {
+  /// [launchWithHandle] with [extraArgs] (e.g. [stateLoadArgs]) appended to
+  /// [launchArgs] for this launch only. Subclasses that support state
+  /// auto-load override this rather than [launchWithHandle] (see
+  /// [supportsStateAutoLoad]).
+  Future<Process?> launchWithHandleAndExtraArgs(Game game, String romPath,
+      {List<String> extraArgs = const []}) async {
     final exePath = await findExecutable();
     if (exePath == null) throw Exception('$name not found. Please download it first.');
 
     final normalizedRomPath = p.absolute(p.normalize(romPath));
     await preLaunch(game, romPath);
-    final process = await directoryService.launchGameWithHandle(game, normalizedRomPath, emulatorId, exePath, args: launchArgs);
+    final process = await directoryService.launchGameWithHandle(game, normalizedRomPath, emulatorId, exePath, args: [...launchArgs, ...extraArgs]);
     await process?.exitCode;
     await postLaunch(game, romPath);
     return process;

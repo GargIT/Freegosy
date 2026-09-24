@@ -17,6 +17,7 @@ import '../../providers/romm_provider.dart';
 import '../../providers/library_provider.dart';
 import '../widgets/focus_effect_wrapper.dart';
 import '../widgets/dialog_back_bridge.dart';
+import '../widgets/state_sync_toggle.dart';
 
 Widget _buildActionButton(
   BuildContext context, {
@@ -224,6 +225,8 @@ Widget buildEmulatorsSection(
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                       ),
                       _BiosStatusInline(emulatorId: emulatorId),
+                      StateSyncToggleRow(emulatorId: emulatorId),
+                      StateAutoLoadToggleRow(emulatorId: emulatorId),
                       if (overridePath != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 2),

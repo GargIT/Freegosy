@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import '../core/romm/romm_models.dart';
+import '../core/save/state_sync_capable.dart';
+import '../core/save/state_sync_service.dart';
 import 'romm_provider.dart';
 import 'shared_prefs_provider.dart';
 
@@ -197,6 +199,31 @@ final perGameLauncherEnabledProvider = createPersistentProvider<bool>('per_game_
 /// Whether Freegosy pings RomM's real-time "active sessions" board while a
 /// game is running (issue #93). Opt-out, enabled by default.
 final rommActiveSessionSyncProvider = createPersistentProvider<bool>('romm_active_session_sync', true);
+
+/// Per-emulator opt-in for syncing save states with RomM (off by default).
+/// Only honoured for emulators whose `supportsStateSync` is true.
+final stateSyncEnabledProvider =
+    StateNotifierProvider.family<PersistentStateNotifier<bool>, bool, String>(
+        (ref, emulatorId) {
+  return PersistentStateNotifier<bool>(
+    ref.watch(sharedPreferencesProvider),
+    StateSyncService.enabledKey(emulatorId),
+    false,
+  );
+});
+
+/// Per-emulator opt-in for booting straight into the game's resume state
+/// (off by default). Only honoured for emulators whose `supportsStateAutoLoad`
+/// is true; independent of [stateSyncEnabledProvider].
+final stateAutoLoadEnabledProvider =
+    StateNotifierProvider.family<PersistentStateNotifier<bool>, bool, String>(
+        (ref, emulatorId) {
+  return PersistentStateNotifier<bool>(
+    ref.watch(sharedPreferencesProvider),
+    stateAutoLoadKey(emulatorId),
+    false,
+  );
+});
 
 // RetroArch favorite cores (JSON-encoded list of core IDs)
 final retroarchFavoriteCoresProvider = StateNotifierProvider<_FavoriteCoresNotifier, List<String>>((ref) {

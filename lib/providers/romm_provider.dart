@@ -7,6 +7,7 @@ import 'package:freegosy/core/romm/romm_service.dart';
 import 'package:freegosy/core/emulator/strategy_registry.dart';
 import 'package:freegosy/core/emulator/game_launch_service.dart';
 import 'package:freegosy/core/save/save_sync_service.dart';
+import 'package:freegosy/core/save/state_sync_service.dart';
 import 'package:freegosy/core/save/backup_repository.dart';
 import 'package:freegosy/core/save/backup_service.dart';
 import 'package:freegosy/core/emulator/strategies/windows_strategy.dart';
@@ -146,12 +147,22 @@ final saveSyncServiceProvider = FutureProvider<SaveSyncService?>((ref) async {
   return service;
 });
 
+// StateSyncService provider — syncs emulator save states via RomM /api/states.
+final stateSyncServiceProvider = FutureProvider<StateSyncService?>((ref) async {
+  final rommService = ref.watch(rommServiceProvider);
+  final saveSyncService = await ref.watch(saveSyncServiceProvider.future);
+  final prefs = ref.watch(appPreferencesProvider);
+  if (rommService == null || saveSyncService == null) return null;
+  return StateSyncService(rommService, prefs, saveSyncService.getStrategyForGame);
+});
+
 // GameLaunchService provider — orchestrates ROM resolution, process launch,
 // and the post-exit save-sync/backup/play-session pipeline.
 final gameLaunchServiceProvider = FutureProvider<GameLaunchService?>((ref) async {
   final directoryService = await ref.watch(directoryServiceProvider.future);
   final strategyRegistry = await ref.watch(strategyRegistryProvider.future);
   final saveSyncService = await ref.watch(saveSyncServiceProvider.future);
+  final stateSyncService = await ref.watch(stateSyncServiceProvider.future);
   if (directoryService == null || strategyRegistry == null || saveSyncService == null) return null;
   return GameLaunchService(
     directoryService: directoryService,
@@ -161,6 +172,7 @@ final gameLaunchServiceProvider = FutureProvider<GameLaunchService?>((ref) async
     backupRepository: ref.watch(backupRepositoryProvider),
     prefs: ref.watch(appPreferencesProvider),
     rommService: ref.watch(rommServiceProvider),
+    stateSyncService: stateSyncService,
   );
 });
 

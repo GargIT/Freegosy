@@ -13,6 +13,8 @@ import '../save/backup_entry.dart';
 import '../save/backup_repository.dart';
 import '../save/backup_service.dart';
 import '../save/save_sync_service.dart';
+import '../save/state_sync_capable.dart';
+import '../save/state_sync_service.dart';
 import 'emulator_strategy.dart';
 import 'strategies/retroarch_strategy.dart';
 import 'strategy_registry.dart';
@@ -61,10 +63,15 @@ class LaunchResult {
   final String? backupZipPath;
   final bool playSessionRecorded;
 
+  /// Save states that changed both locally and on RomM during this session
+  /// and were left untouched pending the user's choice.
+  final int stateConflictCount;
+
   const LaunchResult({
     required this.syncOk,
     this.backupZipPath,
     this.playSessionRecorded = false,
+    this.stateConflictCount = 0,
   });
 }
 
@@ -80,6 +87,7 @@ class GameLaunchService {
   final BackupRepository backupRepository;
   final RommService? rommService;
   final AppPreferences prefs;
+  final StateSyncService? stateSyncService;
 
   GameLaunchService({
     required this.directoryService,
@@ -89,6 +97,7 @@ class GameLaunchService {
     required this.backupRepository,
     required this.prefs,
     this.rommService,
+    this.stateSyncService,
   });
 
   /// Scans [existingRomPath] (a directory) for `.m3u` playlists or known
@@ -162,6 +171,41 @@ class GameLaunchService {
     return !await io.File(keysPath).exists();
   }
 
+  /// The state file [strategy] should boot into for [game], or null. Only set
+  /// when the emulator supports auto-loading, the user turned the emulator's
+  /// "Auto-load resume state on launch" switch on, and its save strategy can
+  /// name a state. Independent of state sync. Never throws: a failure here must
+  /// not stop the game from launching, so it is logged and treated as none.
+  @visibleForTesting
+  Future<String?> autoLoadStatePath(
+      Game game, String romPath, EmulatorStrategy strategy) async {
+    try {
+      if (!strategy.supportsStateAutoLoad) {
+        debugPrint("[AutoLoad] not supported by '${strategy.emulatorId}'");
+        return null;
+      }
+      if (prefs.getBool(stateAutoLoadKey(strategy.emulatorId)) != true) {
+        debugPrint("[AutoLoad] off for '${strategy.emulatorId}'");
+        return null;
+      }
+      final saveStrategy = saveSyncService.getStrategyForGame(game,
+          emulatorId: strategy.emulatorId);
+      if (saveStrategy is! StateSyncCapable) {
+        debugPrint("[AutoLoad] not supported by '${strategy.emulatorId}' "
+            '(its save strategy cannot name a state)');
+        return null;
+      }
+      final path = (await saveStrategy.autoLoadState(game, romPath))?.path;
+      debugPrint(path == null
+          ? '[AutoLoad] no resume state for ${game.name}'
+          : '[AutoLoad] will load $path');
+      return path;
+    } catch (e) {
+      dev.log('Resume state lookup failed (non-fatal)', error: e);
+      return null;
+    }
+  }
+
   /// Launches [game] via [strategy], returning the process handle (if any)
   /// and the session start time. Mirrors the exact launchWithHandle/launch
   /// fallback used previously in the UI layer — behavior-preserving.
@@ -174,14 +218,26 @@ class GameLaunchService {
     final sessionStart = DateTime.now();
     final activityTrackerFuture = _maybeStartActivityTracker(game);
     io.Process? process;
+    // Resolved into locals and passed down as arguments: the strategy is one
+    // shared instance per emulator and launches can overlap, so nothing about
+    // this launch may be stored on it.
+    final statePath = await autoLoadStatePath(game, romPath, strategy);
+    final extraArgs =
+        statePath == null ? const <String>[] : strategy.stateLoadArgs(statePath);
     try {
-      if (strategy is RetroArchStrategy && overrideCoreId != null) {
+      if (extraArgs.isNotEmpty) {
+        process = await strategy.launchWithHandleAndExtraArgs(game, romPath, extraArgs: extraArgs);
+      } else if (strategy is RetroArchStrategy && overrideCoreId != null) {
         process = await strategy.launchWithHandle(game, romPath, coreName: overrideCoreId);
       } else {
         process = await strategy.launchWithHandle(game, romPath);
       }
       if (process == null) {
-        await strategy.launch(game, romPath);
+        if (extraArgs.isNotEmpty) {
+          await strategy.launchWithExtraArgs(game, romPath, extraArgs: extraArgs);
+        } else {
+          await strategy.launch(game, romPath);
+        }
         // Fire-and-forget path: callers never call awaitExitAndSync without
         // a process handle, so nothing else will ever stop this tracker —
         // and we have no exit signal for it anyway, so stop it right away
@@ -235,10 +291,38 @@ class GameLaunchService {
     }
   }
 
+  /// Pushes the states written during [session] (if state sync is on for the
+  /// game) and returns how many conflicts were found. Never throws: a failure
+  /// here must not break the backup or play-session report that follow, so it
+  /// is logged and counted as no conflicts.
+  @visibleForTesting
+  Future<int> pushStatesAfterExit(
+      GameSession session, Game game, String romPath) async {
+    if (stateSyncService == null) {
+      debugPrint('[StateSync] post-exit push skipped: state sync service not available');
+    } else {
+      debugPrint('[StateSync] post-exit push for ${game.name} '
+          '(emulator ${session.emulatorId})');
+    }
+    try {
+      final result = await stateSyncService?.pushStates(
+        game,
+        romPath,
+        sessionStart: session.sessionStart,
+        emulatorId: session.emulatorId,
+      );
+      return result?.conflicts.length ?? 0;
+    } catch (e) {
+      dev.log('Post-exit state push failed (non-fatal)', error: e);
+      return 0;
+    }
+  }
+
   /// Awaits the launched process's exit (no-op if [session.process] is
   /// null, i.e. the fire-and-forget `launch` path was used), then runs the
-  /// post-exit pipeline: push saves, create a local backup, and report the
-  /// play session to RomM (best-effort, non-fatal on failure).
+  /// post-exit pipeline: push saves, push save states (if enabled), create a
+  /// local backup, and report the play session to RomM (best-effort,
+  /// non-fatal on failure).
   Future<LaunchResult?> awaitExitAndSync(
     GameSession session,
     Game game,
@@ -263,6 +347,9 @@ class GameLaunchService {
       coreOverride: overrideCoreId,
       emulatorId: session.emulatorId,
     );
+
+    // Save states sync separately from game saves; see [pushStatesAfterExit].
+    final stateConflictCount = await pushStatesAfterExit(session, game, romPath);
 
     String? backupZipPath;
     try {
@@ -299,6 +386,11 @@ class GameLaunchService {
       dev.log('Play session record failed (non-fatal)', error: e);
     }
 
-    return LaunchResult(syncOk: syncOk, backupZipPath: backupZipPath, playSessionRecorded: playSessionRecorded);
+    return LaunchResult(
+      syncOk: syncOk,
+      backupZipPath: backupZipPath,
+      playSessionRecorded: playSessionRecorded,
+      stateConflictCount: stateConflictCount,
+    );
   }
 }

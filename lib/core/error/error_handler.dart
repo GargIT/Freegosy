@@ -164,57 +164,65 @@ class ErrorHandler {
     );
   }
 
+  static Color _colorFor(ErrorSeverity severity) => switch (severity) {
+        ErrorSeverity.success => const Color(0xFF2E7D32),
+        ErrorSeverity.info    => const Color(0xFF1565C0),
+        ErrorSeverity.warning => const Color(0xFFE65100),
+        ErrorSeverity.error   => const Color(0xFFC62828),
+      };
+
+  static IconData _iconFor(ErrorSeverity severity) => switch (severity) {
+        ErrorSeverity.success => Icons.check_circle_outline,
+        ErrorSeverity.info    => Icons.info_outline,
+        ErrorSeverity.warning => Icons.warning_amber_outlined,
+        ErrorSeverity.error   => Icons.error_outline,
+      };
+
+  static Duration _durationFor(ErrorSeverity severity) =>
+      severity == ErrorSeverity.error
+          ? const Duration(seconds: 6)
+          : const Duration(seconds: 3);
+
+  static Widget _snackBarContent(
+      ErrorSeverity severity, String title, String message) {
+    return Row(
+      children: [
+        Icon(_iconFor(severity), color: Colors.white, size: 20),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+              Text(
+                message,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   /// Show a snackbar for an AppError.
   static void show(BuildContext context, AppError error) {
     if (!context.mounted) return;
-    
-    final color = switch (error.severity) {
-      ErrorSeverity.success => const Color(0xFF2E7D32),
-      ErrorSeverity.info    => const Color(0xFF1565C0),
-      ErrorSeverity.warning => const Color(0xFFE65100),
-      ErrorSeverity.error   => const Color(0xFFC62828),
-    };
-
-    final icon = switch (error.severity) {
-      ErrorSeverity.success => Icons.check_circle_outline,
-      ErrorSeverity.info    => Icons.info_outline,
-      ErrorSeverity.warning => Icons.warning_amber_outlined,
-      ErrorSeverity.error   => Icons.error_outline,
-    };
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        backgroundColor: color,
-        duration: error.severity == ErrorSeverity.error
-            ? const Duration(seconds: 6)
-            : const Duration(seconds: 3),
-        content: Row(
-          children: [
-            Icon(icon, color: Colors.white, size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    error.title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                  ),
-                  Text(
-                    error.message,
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+        backgroundColor: _colorFor(error.severity),
+        duration: _durationFor(error.severity),
+        content: _snackBarContent(error.severity, error.title, error.message),
         action: error.technical != null
             ? SnackBarAction(
                 label: 'Details',
@@ -222,6 +230,42 @@ class ErrorHandler {
                 onPressed: () => _showTechnicalDetails(context, error),
               )
             : null,
+      ),
+    );
+  }
+
+  /// Show a snackbar with a caller-supplied action button and a close icon.
+  ///
+  /// Unlike [show] it stays on screen until the user dismisses it (by pressing
+  /// the action or the close icon) when [persistent] is true, so a notice the
+  /// user has to act on is not lost to the auto-dismiss timer. With
+  /// `persistent: false` it auto-dismisses after the usual 3 s (6 s for
+  /// errors). Pressing the action dismisses the snackbar and runs [onAction].
+  static void showWithAction(
+    BuildContext context,
+    String title, {
+    String message = '',
+    ErrorSeverity severity = ErrorSeverity.warning,
+    required String actionLabel,
+    required VoidCallback onAction,
+    bool persistent = true,
+  }) {
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: _colorFor(severity),
+        duration: _durationFor(severity),
+        persist: persistent,
+        showCloseIcon: true,
+        closeIconColor: Colors.white,
+        content: _snackBarContent(severity, title, message),
+        action: SnackBarAction(
+          label: actionLabel,
+          textColor: Colors.white,
+          onPressed: onAction,
+        ),
       ),
     );
   }

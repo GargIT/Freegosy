@@ -46,6 +46,7 @@ void main() {
     when(mockRommService.getPlatforms()).thenAnswer((_) async => []);
     when(mockStrategyRegistry.detectConflicts()).thenReturn(<String, ({List<EmulatorStrategy> strategies, List<String> mergedSlugs})>{});
     when(mockStrategyRegistry.coreOverrides).thenReturn(<String, String>{});
+    when(mockStrategyRegistry.getStrategyById(any)).thenReturn(null);
   });
 
   Widget createSettingsScreen() {

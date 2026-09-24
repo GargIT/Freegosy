@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/save/save_sync_service.dart';
+import '../../core/save/state_sync_service.dart';
 import '../widgets/save_conflict_dialog.dart';
 import '../widgets/focus_effect_wrapper.dart';
 
@@ -259,6 +260,15 @@ class LibraryDialogService {
     return showDialog<String>(
       context: context,
       builder: (ctx) => SaveConflictDialog(conflict: e),
+    );
+  }
+
+  /// Asks which copy of a conflicting save state to keep: `'local'`, `'cloud'`
+  /// or `null` when cancelled (the state stays flagged and untouched).
+  static Future<String?> showStateConflictDialog(BuildContext context, StateConflict conflict) async {
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => SaveConflictDialog.forState(conflict: conflict),
     );
   }
 }

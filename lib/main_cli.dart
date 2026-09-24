@@ -18,6 +18,7 @@ import 'core/save/backup_entry.dart';
 import 'core/save/backup_repository.dart';
 import 'core/save/backup_service.dart';
 import 'core/save/save_sync_service.dart';
+import 'core/save/state_sync_service.dart';
 import 'core/storage/app_preferences.dart';
 import 'core/storage/directory_service.dart';
 import 'core/storage/shared_preferences_app_preferences.dart';
@@ -212,6 +213,7 @@ class _HeadlessSession {
     final rommService = RommService(rommConfig);
     final strategyRegistry = StrategyRegistry(directoryService, prefs);
     final saveSyncService = SaveSyncService(rommService, directoryService, strategyRegistry, prefs);
+    final stateSyncService = StateSyncService(rommService, prefs, saveSyncService.getStrategyForGame);
 
     final backupRepository = BackupRepository();
     backupRepository.initBox();
@@ -225,6 +227,7 @@ class _HeadlessSession {
       backupRepository: backupRepository,
       prefs: prefs,
       rommService: rommService,
+      stateSyncService: stateSyncService,
     );
 
     return _HeadlessSession(

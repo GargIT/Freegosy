@@ -1,11 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/save/save_sync_service.dart';
+import '../../core/save/state_sync_service.dart';
 
 class SaveConflictDialog extends StatelessWidget {
-  final SaveConflictException conflict;
+  final String _gameName;
+  final DateTime _localTime;
+  final DateTime _cloudTime;
 
-  const SaveConflictDialog({super.key, required this.conflict});
+  /// What the two copies are, as it reads in the dialog sentence
+  /// (`...local and cloud $subject have been modified`).
+  final String _subject;
+
+  SaveConflictDialog({super.key, required SaveConflictException conflict})
+      : _gameName = conflict.game.name,
+        _localTime = conflict.localTime,
+        _cloudTime = conflict.cloudTime,
+        _subject = 'saves';
+
+  SaveConflictDialog.forState({super.key, required StateConflict conflict})
+      : _gameName = conflict.game.name,
+        _localTime = conflict.localTime,
+        _cloudTime = conflict.cloudTime,
+        _subject = 'versions of save state "${conflict.fileName}"';
 
   @override
   Widget build(BuildContext context) {
@@ -24,28 +41,28 @@ class SaveConflictDialog extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Both local and cloud saves have been modified for ${conflict.game.name}. Please choose which version to keep.',
+            'Both local and cloud $_subject have been modified for $_gameName. Please choose which version to keep.',
             style: const TextStyle(fontSize: 14),
           ),
           const SizedBox(height: 24),
           _buildOption(
             context,
             title: 'Use Local Version',
-            time: conflict.localTime,
+            time: _localTime,
             dateFormat: dateFormat,
             icon: Icons.computer,
             onTap: () => Navigator.pop(context, 'local'),
-            isNewer: conflict.localTime.isAfter(conflict.cloudTime),
+            isNewer: _localTime.isAfter(_cloudTime),
           ),
           const SizedBox(height: 12),
           _buildOption(
             context,
             title: 'Use Cloud Version',
-            time: conflict.cloudTime,
+            time: _cloudTime,
             dateFormat: dateFormat,
             icon: Icons.cloud_outlined,
             onTap: () => Navigator.pop(context, 'cloud'),
-            isNewer: conflict.cloudTime.isAfter(conflict.localTime),
+            isNewer: _cloudTime.isAfter(_localTime),
           ),
         ],
       ),
