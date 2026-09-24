@@ -13,7 +13,6 @@ import '../save/backup_entry.dart';
 import '../save/backup_repository.dart';
 import '../save/backup_service.dart';
 import '../save/save_sync_service.dart';
-import '../save/state_sync_capable.dart';
 import '../save/state_sync_service.dart';
 import 'emulator_strategy.dart';
 import 'strategies/retroarch_strategy.dart';
@@ -171,49 +170,19 @@ class GameLaunchService {
     return !await io.File(keysPath).exists();
   }
 
-  /// The state file [strategy] should boot into for [game], or null. Only set
-  /// when the emulator supports auto-loading, the user turned the emulator's
-  /// "Auto-load resume state on launch" switch on, and its save strategy can
-  /// name a state. Independent of state sync. Never throws: a failure here must
-  /// not stop the game from launching, so it is logged and treated as none.
-  @visibleForTesting
-  Future<String?> autoLoadStatePath(
-      Game game, String romPath, EmulatorStrategy strategy) async {
-    try {
-      if (!strategy.supportsStateAutoLoad) {
-        debugPrint("[AutoLoad] not supported by '${strategy.emulatorId}'");
-        return null;
-      }
-      if (prefs.getBool(stateAutoLoadKey(strategy.emulatorId)) != true) {
-        debugPrint("[AutoLoad] off for '${strategy.emulatorId}'");
-        return null;
-      }
-      final saveStrategy = saveSyncService.getStrategyForGame(game,
-          emulatorId: strategy.emulatorId);
-      if (saveStrategy is! StateSyncCapable) {
-        debugPrint("[AutoLoad] not supported by '${strategy.emulatorId}' "
-            '(its save strategy cannot name a state)');
-        return null;
-      }
-      final path = (await saveStrategy.autoLoadState(game, romPath))?.path;
-      debugPrint(path == null
-          ? '[AutoLoad] no resume state for ${game.name}'
-          : '[AutoLoad] will load $path');
-      return path;
-    } catch (e) {
-      dev.log('Resume state lookup failed (non-fatal)', error: e);
-      return null;
-    }
-  }
-
   /// Launches [game] via [strategy], returning the process handle (if any)
   /// and the session start time. Mirrors the exact launchWithHandle/launch
   /// fallback used previously in the UI layer — behavior-preserving.
+  ///
+  /// [loadStatePath], if given, is a save state the emulator boots straight
+  /// into (only when [EmulatorStrategy.supportsStateLoadOnLaunch]; ignored
+  /// otherwise). Nothing passes it yet: a plain launch never loads a state.
   Future<GameSession> launch(
     Game game,
     String romPath,
     EmulatorStrategy strategy, {
     String? overrideCoreId,
+    String? loadStatePath,
   }) async {
     final sessionStart = DateTime.now();
     final activityTrackerFuture = _maybeStartActivityTracker(game);
@@ -221,9 +190,9 @@ class GameLaunchService {
     // Resolved into locals and passed down as arguments: the strategy is one
     // shared instance per emulator and launches can overlap, so nothing about
     // this launch may be stored on it.
-    final statePath = await autoLoadStatePath(game, romPath, strategy);
-    final extraArgs =
-        statePath == null ? const <String>[] : strategy.stateLoadArgs(statePath);
+    final extraArgs = loadStatePath != null && strategy.supportsStateLoadOnLaunch
+        ? strategy.stateLoadArgs(loadStatePath)
+        : const <String>[];
     try {
       if (extraArgs.isNotEmpty) {
         process = await strategy.launchWithHandleAndExtraArgs(game, romPath, extraArgs: extraArgs);

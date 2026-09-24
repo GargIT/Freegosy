@@ -27,19 +27,18 @@ abstract class EmulatorStrategy {
 
   /// Whether this emulator can boot straight into a save state given on its
   /// command line (see [stateLoadArgs]). Only true where the matching save
-  /// strategy implements `StateSyncCapable.autoLoadState` (a unit test enforces
-  /// that they agree).
+  /// strategy is `StateSyncCapable` (a unit test enforces that they agree).
   ///
-  /// `GameLaunchService` passes the state arguments to [launchWithExtraArgs] /
-  /// [launchWithHandleAndExtraArgs] for each launch, so an emulator that
-  /// supports auto-load must not override [launch] or [launchWithHandle] in a
-  /// way that skips the base implementation; override the `...ExtraArgs`
-  /// variants instead. Nothing per-launch is stored on the strategy: it is one
-  /// shared instance and launches can overlap.
-  bool get supportsStateAutoLoad => false;
+  /// `GameLaunchService.launch` passes the state arguments to
+  /// [launchWithExtraArgs] / [launchWithHandleAndExtraArgs] for that launch
+  /// only, so an emulator that supports this must not override [launch] or
+  /// [launchWithHandle] in a way that skips the base implementation; override
+  /// the `...ExtraArgs` variants instead. Nothing per-launch is stored on the
+  /// strategy: it is one shared instance and launches can overlap.
+  bool get supportsStateLoadOnLaunch => false;
 
   /// Command-line arguments that make the emulator load the state at
-  /// [statePath]. Only used when [supportsStateAutoLoad] is true.
+  /// [statePath]. Only used when [supportsStateLoadOnLaunch] is true.
   List<String> stateLoadArgs(String statePath) => const [];
 
   /// The directory service used for finding and launching emulators.
@@ -67,8 +66,8 @@ abstract class EmulatorStrategy {
       launchWithHandleAndExtraArgs(game, romPath);
 
   /// [launch] with [extraArgs] (e.g. [stateLoadArgs]) appended to [launchArgs]
-  /// for this launch only. Subclasses that support state auto-load override
-  /// this rather than [launch] (see [supportsStateAutoLoad]).
+  /// for this launch only. Subclasses that support loading a state on launch
+  /// override this rather than [launch] (see [supportsStateLoadOnLaunch]).
   Future<void> launchWithExtraArgs(Game game, String romPath,
       {List<String> extraArgs = const []}) async {
     final exePath = await findExecutable();
@@ -81,9 +80,9 @@ abstract class EmulatorStrategy {
   }
 
   /// [launchWithHandle] with [extraArgs] (e.g. [stateLoadArgs]) appended to
-  /// [launchArgs] for this launch only. Subclasses that support state
-  /// auto-load override this rather than [launchWithHandle] (see
-  /// [supportsStateAutoLoad]).
+  /// [launchArgs] for this launch only. Subclasses that support loading a
+  /// state on launch override this rather than [launchWithHandle] (see
+  /// [supportsStateLoadOnLaunch]).
   Future<Process?> launchWithHandleAndExtraArgs(Game game, String romPath,
       {List<String> extraArgs = const []}) async {
     final exePath = await findExecutable();

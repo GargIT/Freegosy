@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import '../core/romm/romm_models.dart';
-import '../core/save/state_sync_capable.dart';
 import '../core/save/state_sync_service.dart';
 import 'romm_provider.dart';
 import 'shared_prefs_provider.dart';
@@ -208,19 +207,6 @@ final stateSyncEnabledProvider =
   return PersistentStateNotifier<bool>(
     ref.watch(sharedPreferencesProvider),
     StateSyncService.enabledKey(emulatorId),
-    false,
-  );
-});
-
-/// Per-emulator opt-in for booting straight into the game's resume state
-/// (off by default). Only honoured for emulators whose `supportsStateAutoLoad`
-/// is true; independent of [stateSyncEnabledProvider].
-final stateAutoLoadEnabledProvider =
-    StateNotifierProvider.family<PersistentStateNotifier<bool>, bool, String>(
-        (ref, emulatorId) {
-  return PersistentStateNotifier<bool>(
-    ref.watch(sharedPreferencesProvider),
-    stateAutoLoadKey(emulatorId),
     false,
   );
 });

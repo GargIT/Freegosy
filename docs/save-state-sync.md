@@ -15,7 +15,7 @@ This page describes the feature and how it behaves.
 | Emulators | PCSX2 only for now. Every other emulator shows the toggle disabled with "Not supported yet". |
 | Default | **Off.** Turn it on per emulator. |
 | Where | Settings → Emulators → PCSX2 → "Sync save states"; "Sync Save States" button on a game's page. |
-| Auto-load | A second, separate opt-in switch, "Auto-load resume state on launch", right under the sync switch. **Off** by default. See [Auto-load on launch](#auto-load-on-launch). |
+| Loading a state at launch | Not available: a launch always starts the game fresh. See [Loading a state at launch](#loading-a-state-at-launch). |
 | RomM API | `/api/states` (separate from `/api/saves`). Works on any RomM that has the states API. |
 | Privacy | States belong to your RomM user and stay private. Freegosy never shares them. |
 
@@ -60,44 +60,18 @@ for that game, the new one does nothing (the **Sync Save States** button tells
 you so instead of reporting a sync that did not happen; the pre-launch pull just
 carries on and launches).
 
-## Auto-load on launch
+## Loading a state at launch
 
-A second switch, **Auto-load resume state on launch**, sits directly under
-**Sync save states** for PCSX2 (other emulators show it disabled with "Not
-supported yet"). It is **off** by default and works on its own: you do not need
-state sync, and it also works with purely local states.
+Every launch starts the game fresh; Freegosy never loads a save state for you.
+Load one from inside PCSX2 as usual.
 
-When it is on, Freegosy looks in the PCSX2 states folder for the game's resume
-state, `SERIAL (CRC).resume.p2s`, and starts PCSX2 with it through PCSX2's
-`-statefile` option, so the game boots straight into where you last quit. The
-launch arguments become `-batch -fullscreen -statefile <path>` followed by the
-ROM. This applies to the app and to the headless CLI.
-
-- **Resume slot only.** Numbered quick-save slots (`SERIAL (CRC).NN.p2s`) are
-  never auto-loaded. If several resume files match the game's serial (different
-  CRCs), the newest by modified time is used. `.p2s.backup` files, other games'
-  states and files smaller than 100 bytes are ignored.
-- **No resume file, normal launch.** If the game has no resume state (or the
-  serial can't be read, or the states folder is missing), PCSX2 starts as usual
-  with no extra arguments.
-- **The resume file only exists if PCSX2 writes it.** PCSX2 only writes the
-  resume file when its save-state-on-shutdown option (the `SaveStateOnShutdown`
-  setting) is on; Freegosy does not change PCSX2 settings. Turn that option on in
-  PCSX2 if you want a resume state to exist.
-- **With sync on**, the app's awaited pre-launch pull runs before the game
-  launches, so a resume state made on another machine is downloaded first and is
-  what loads. The headless CLI has no pre-launch pull (see "When it runs"), so it
-  loads whatever resume state is already on that machine.
-
-Caveats:
-
-- It resumes exactly where you quit. Whether the memory card and the state
-  agree with each other is up to you (for example, a resume state can be older
-  than the last in-game save on the memory card).
-- A resume state from a different PCSX2 build fails to load inside PCSX2; nothing
-  is corrupted.
-- Flatpak and AppImage installs of PCSX2 may not be able to read the state path
-  Freegosy passes.
+An earlier opt-in switch, "Auto-load resume state on launch", booted PCSX2 straight
+into the game's resume state on every launch. It was removed before it was
+released: a resume state made by a different PCSX2 version crashed PCSX2 at boot,
+and because the switch applied to every launch, the game could not be started
+again until the switch was turned off. Loading a state at launch is being
+redesigned as a **Resume Game** button on the game's page, next to Play, so
+loading a state is a choice made for that one launch.
 
 ## Conflicts and safety
 
@@ -151,16 +125,14 @@ Safety rules that always apply:
 
 ## Troubleshooting
 
-- **A switch is greyed out** — the emulator doesn't support that feature yet
-  (state sync and auto-load are separate switches).
+- **The switch is greyed out** — the emulator doesn't support state sync yet.
 - **Nothing syncs** — check the toggle is on, RomM is reachable, and that the
   game's serial can be read (a renamed ROM works; an unreadable disc image does
   not). The next entry shows how to see what state sync actually did.
 - **How do I tell what state sync did?** — open the log: **Settings**, in the
   **Storage** card under **Troubleshooting**, press **View Logs** (the **System
   Logs** window). Leave the filter on **ALL** (the **ERROR** filter only shows
-  the failure lines). State sync lines start with `[StateSync]` and auto-load lines
-  with `[AutoLoad]`. Select the text to copy it. The log is kept in memory
+  the failure lines). State sync lines start with `[StateSync]`. Select the text to copy it. The log is kept in memory
   only: the last 500 lines since Freegosy started (the trash-sweep icon with the
   tooltip **Clear Logs** empties it), so an older sync may have scrolled out. IP
   addresses are masked. The same lines also print to the console in a debug run.
@@ -172,7 +144,6 @@ Safety rules that always apply:
   [StateSync] pull: RomM lists 1 state(s), 1 match this game
   [StateSync] downloaded SCUS-97113 (A1B2C3D4).01.p2s
   [StateSync] pull done: downloaded=1 restamped=0 conflicts=0
-  [AutoLoad] will load C:\PCSX2\sstates\SCUS-97113 (A1B2C3D4).resume.p2s
   [StateSync] post-exit push for Ico (emulator pcsx2)
   [StateSync] push Ico (rom 42): 2 of 2 local state(s) eligible (modified since 2026-01-01T20:00:00.000, at least 100 bytes)
   [StateSync] unchanged SCUS-97113 (A1B2C3D4).01.p2s
@@ -202,16 +173,10 @@ Safety rules that always apply:
     modified this session)`.
   - `post-exit push skipped: state sync service not available` (no RomM
     connection was set up).
-  - `[AutoLoad] off for 'pcsx2'`, `not supported by ...` or `no resume state for
-    <game>` (why auto-load did not start a state).
 - **A conflict keeps coming back** — you cancelled it. Press **Sync Save States**
   and choose a side.
 - **A state won't load in PCSX2** — the two machines are on different PCSX2
   versions.
-- **Auto-load does nothing** — check the switch is on, that PCSX2's
-  save-state-on-shutdown option (the `SaveStateOnShutdown` setting) is on
-  (otherwise no resume state is written), and that the game's
-  `SERIAL (CRC).resume.p2s` exists in the states folder.
 
 ## For contributors
 
@@ -222,16 +187,17 @@ Safety rules that always apply:
   strategy (`stateDirectory`, `stateFileMatcher`, optionally
   `looksLikeValidState`) and return `true` from
   `EmulatorStrategy.supportsStateSync`. A unit test fails if the two disagree.
-- To add auto-load for an emulator: override `StateSyncCapable.autoLoadState` on
-  its save strategy, and on its `EmulatorStrategy` return `true` from
-  `supportsStateAutoLoad` and the command-line arguments that load a state from
-  `stateLoadArgs`. `GameLaunchService.launch` resolves the state path per
-  launch and passes the arguments to the base `launchWithExtraArgs` /
-  `launchWithHandleAndExtraArgs` methods; nothing is stored on the shared
-  strategy (launches of the same emulator can overlap). Do not override
-  `launch` / `launchWithHandle` on an auto-load emulator in a way that skips
-  the base implementation; override the `...ExtraArgs` variants instead. A unit
-  test checks the two sides agree.
+- Loading a state at launch (the groundwork for Resume Game): an
+  `EmulatorStrategy` returns `true` from `supportsStateLoadOnLaunch` and the
+  command-line arguments that load a state from `stateLoadArgs` (PCSX2:
+  `-statefile <path>`). `GameLaunchService.launch(..., loadStatePath: ...)`
+  passes them to the base `launchWithExtraArgs` / `launchWithHandleAndExtraArgs`
+  methods for that launch only; nothing is stored on the shared strategy
+  (launches of the same emulator can overlap). Do not override `launch` /
+  `launchWithHandle` on such an emulator in a way that skips the base
+  implementation; override the `...ExtraArgs` variants instead. A unit test
+  checks that every such emulator has a `StateSyncCapable` save strategy.
+  Nothing passes `loadStatePath` yet.
 - Tests: `test/unit/state_sync_*`, with an in-memory fake RomM in
   `test/helpers/fake_romm_states_api.dart`. `test/mock_romm_server.py` also
   serves `/api/states` for manual runs.
@@ -246,9 +212,7 @@ Safety rules that always apply:
     button, the dialog, and both **Use Local Version** and **Use Cloud
     Version**;
   - an offline launch: with RomM unreachable (502 through a reverse proxy) the
-    launch skipped the pre-launch state pull immediately and the game started;
-  - an auto-load launch with a local resume state (it also works while RomM is
-    unreachable, since it only looks at local files).
+    launch skipped the pre-launch state pull immediately and the game started.
 - Not yet verified against a real RomM: whether re-POSTing an existing file name
   replaces it (Freegosy does not rely on it), and a launch against a RomM that
   is up but not answering (it should be delayed by no more than the ~20 s list
@@ -256,5 +220,8 @@ Safety rules that always apply:
 
 ## Possible follow-ups
 
+- A **Resume Game** button on the game's page (newest state, with a list of
+  every slot, the PCSX2 version each state was made with, and a warning when it
+  differs from the installed one). Being designed.
 - Other emulators (DuckStation, RetroArch, PPSSPP, ares, Dolphin).
 - Deleting states on RomM and propagating deletes.
