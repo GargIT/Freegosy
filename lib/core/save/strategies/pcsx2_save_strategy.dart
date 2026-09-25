@@ -69,16 +69,6 @@ class Pcsx2SaveStrategy extends SaveStrategy with StateSyncCapable {
   static final _stateFilePattern = RegExp(
       r'^([A-Za-z0-9_-]+) \([0-9A-Fa-f]{8}\)\.(?:\d{2}|resume)\.p2s$');
 
-  /// Only PCSX2's resume slot (`SERIAL (CRC).resume.p2s`), never a numbered
-  /// quick-save slot.
-  static final _resumeStatePattern = RegExp(
-      r'^([A-Za-z0-9_-]+) \([0-9A-Fa-f]{8}\)\.resume\.p2s$');
-
-  /// Anything smaller than this is not a usable state (same threshold as
-  /// StateSyncService.minValidStateBytes).
-  @visibleForTesting
-  static const int minAutoLoadStateBytes = 100;
-
   static String _serialKey(String serial) =>
       serial.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
 
@@ -101,35 +91,6 @@ class Pcsx2SaveStrategy extends SaveStrategy with StateSyncCapable {
       final match = _stateFilePattern.firstMatch(fileName);
       return match != null && _serialKey(match.group(1)!) == wanted;
     };
-  }
-
-  @override
-  Future<io.File?> autoLoadState(Game game, String romPath) async {
-    try {
-      final serial = await _extractSerial(romPath);
-      if (serial == null) return null;
-      final wanted = _serialKey(serial);
-      final directory = io.Directory(await stateDirectory(game, romPath));
-      if (!directory.existsSync()) return null;
-
-      io.File? newest;
-      DateTime? newestModified;
-      for (final entity in directory.listSync(followLinks: false)) {
-        if (entity is! io.File) continue;
-        final match = _resumeStatePattern.firstMatch(p.basename(entity.path));
-        if (match == null || _serialKey(match.group(1)!) != wanted) continue;
-        if (entity.lengthSync() < minAutoLoadStateBytes) continue;
-        final modified = entity.lastModifiedSync();
-        if (newestModified == null || modified.isAfter(newestModified)) {
-          newest = entity;
-          newestModified = modified;
-        }
-      }
-      return newest;
-    } catch (e) {
-      debugPrint('[PCSX2] autoLoadState failed: $e');
-      return null;
-    }
   }
 
   /// `.p2s` files are zip archives.

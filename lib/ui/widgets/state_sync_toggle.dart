@@ -81,30 +81,3 @@ class StateSyncToggleRow extends ConsumerWidget {
     );
   }
 }
-
-/// [StateSyncToggle] for "Auto-load resume state on launch", wired to the
-/// strategy registry (support) and the persisted per-emulator setting.
-class StateAutoLoadToggleRow extends ConsumerWidget {
-  const StateAutoLoadToggleRow({super.key, required this.emulatorId});
-
-  final String emulatorId;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final supported = ref
-            .watch(strategyRegistryProvider)
-            .asData
-            ?.value
-            ?.getStrategyById(emulatorId)
-            ?.supportsStateAutoLoad ??
-        false;
-    final enabled = ref.watch(stateAutoLoadEnabledProvider(emulatorId));
-    return StateSyncToggle(
-      label: 'Auto-load resume state on launch',
-      supported: supported,
-      enabled: enabled,
-      onChanged: (value) =>
-          ref.read(stateAutoLoadEnabledProvider(emulatorId).notifier).update(value),
-    );
-  }
-}

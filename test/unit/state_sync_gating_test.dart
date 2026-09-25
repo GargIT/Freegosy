@@ -38,7 +38,7 @@ void main() {
     expect(advertising, ['pcsx2'], reason: 'PCSX2 is the only emulator with state sync so far');
   });
 
-  test('every emulator advertising state auto-load has a StateSyncCapable save strategy', () async {
+  test('every emulator that can load a state on launch has a StateSyncCapable save strategy', () async {
     SharedPreferences.setMockInitialValues({});
     final prefs = SharedPreferencesAppPreferences(await SharedPreferences.getInstance());
     final directoryService = DirectoryService(prefs);
@@ -57,22 +57,22 @@ void main() {
     for (final definition in kEmulatorDefinitions) {
       final id = definition['id'] as String;
       final strategy = registry.getStrategyById(id);
-      if (strategy == null || !strategy.supportsStateAutoLoad) continue;
+      if (strategy == null || !strategy.supportsStateLoadOnLaunch) continue;
       advertising.add(id);
       expect(saveSync.getStrategyForSlug(null, emulatorId: id), isA<StateSyncCapable>(),
-          reason: '$id advertises supportsStateAutoLoad but its save strategy is not StateSyncCapable');
+          reason: '$id advertises supportsStateLoadOnLaunch but its save strategy is not StateSyncCapable');
     }
 
-    expect(advertising, ['pcsx2'], reason: 'PCSX2 is the only emulator with state auto-load so far');
+    expect(advertising, ['pcsx2'], reason: 'PCSX2 is the only emulator that can load a state on launch so far');
   });
 
-  test('emulators default to not supporting state auto-load', () async {
+  test('emulators default to not loading a state on launch', () async {
     SharedPreferences.setMockInitialValues({});
     final prefs = SharedPreferencesAppPreferences(await SharedPreferences.getInstance());
     final registry = StrategyRegistry(DirectoryService(prefs), prefs);
 
-    expect(registry.getStrategyById('duckstation')!.supportsStateAutoLoad, isFalse);
-    expect(registry.getStrategyById('retroarch')!.supportsStateAutoLoad, isFalse);
+    expect(registry.getStrategyById('duckstation')!.supportsStateLoadOnLaunch, isFalse);
+    expect(registry.getStrategyById('retroarch')!.supportsStateLoadOnLaunch, isFalse);
   });
 
   test('emulators default to not supporting state sync', () async {

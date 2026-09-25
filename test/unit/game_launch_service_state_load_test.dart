@@ -11,8 +11,6 @@ import 'package:freegosy/core/romm/romm_service.dart';
 import 'package:freegosy/core/save/backup_repository.dart';
 import 'package:freegosy/core/save/backup_service.dart';
 import 'package:freegosy/core/save/save_sync_service.dart';
-import 'package:freegosy/core/save/save_strategy.dart';
-import 'package:freegosy/core/save/state_sync_capable.dart';
 import 'package:freegosy/core/storage/directory_service.dart';
 import 'package:path/path.dart' as p;
 
@@ -57,17 +55,17 @@ class _RecordingStrategy extends Pcsx2Strategy {
   }
 }
 
-/// PCSX2 as far as launching goes, but without state auto-load support.
-class _NoAutoLoadStrategy extends Pcsx2Strategy {
-  _NoAutoLoadStrategy(super.directoryService);
+/// PCSX2 as far as launching goes, but unable to load a state on launch.
+class _NoStateLoadStrategy extends Pcsx2Strategy {
+  _NoStateLoadStrategy(super.directoryService);
 
   @override
-  bool get supportsStateAutoLoad => false;
+  bool get supportsStateLoadOnLaunch => false;
 }
 
-/// [_NoAutoLoadStrategy] that records which launch methods were called.
-class _PlainRecordingNoAutoLoadStrategy extends _NoAutoLoadStrategy {
-  _PlainRecordingNoAutoLoadStrategy(super.directoryService);
+/// [_NoStateLoadStrategy] that records which launch methods were called.
+class _PlainRecordingNoStateLoadStrategy extends _NoStateLoadStrategy {
+  _PlainRecordingNoStateLoadStrategy(super.directoryService);
 
   final calls = <String>[];
 
@@ -81,15 +79,6 @@ class _PlainRecordingNoAutoLoadStrategy extends _NoAutoLoadStrategy {
   Future<void> launch(Game game, String romPath) async {
     calls.add('launch');
   }
-}
-
-/// Claims auto-load support under an emulator id whose save strategy cannot
-/// name a state (DuckStation's is not StateSyncCapable).
-class _IncapableSaveStrategyEmulator extends Pcsx2Strategy {
-  _IncapableSaveStrategyEmulator(super.directoryService);
-
-  @override
-  String get emulatorId => 'duckstation';
 }
 
 /// One call the emulator launcher made: which method, for which ROM, and the
@@ -154,15 +143,6 @@ class _GatedFindStrategy extends Pcsx2Strategy {
   }
 }
 
-/// A SaveSyncService whose strategy lookup fails.
-class _ThrowingLookupSaveSync extends SaveSyncService {
-  _ThrowingLookupSaveSync(super.rommService, super.directoryService, super.registry, super.prefs);
-
-  @override
-  SaveStrategy? getStrategyForGame(Game game, {String? emulatorId}) =>
-      throw StateError('lookup exploded');
-}
-
 void main() {
   late Directory base;
   late Pcsx2TestEnv env;
@@ -194,11 +174,8 @@ void main() {
 
   File writeResumeState() => writeResume('SCUS-97113', 'A1B2C3D4');
 
-  Future<void> switchOn([String emulatorId = 'pcsx2']) =>
-      env.prefs.setBool(stateAutoLoadKey(emulatorId), true);
-
   setUp(() async {
-    base = await Directory.systemTemp.createTemp('autoload_launch');
+    base = await Directory.systemTemp.createTemp('state_load_launch');
     env = await Pcsx2TestEnv.create(base);
     romPath = p.join(base.path, 'Ico (SCUS-97113).iso');
     service = buildService((romm, registry) =>
@@ -207,73 +184,12 @@ void main() {
 
   tearDown(() => base.delete(recursive: true));
 
-  group('autoLoadStatePath', () {
-    test('is the resume state when the switch is on', () async {
-      final resume = writeResumeState();
-      await switchOn();
-
-      expect(await service.autoLoadStatePath(game, romPath, Pcsx2Strategy(env.directoryService)),
-          resume.path);
-    });
-
-    test('is null when the switch is off (the default), even with a resume state', () async {
-      writeResumeState();
-
-      expect(await service.autoLoadStatePath(game, romPath, Pcsx2Strategy(env.directoryService)),
-          isNull);
-    });
-
-    test('is null for an emulator that does not support auto-load, even if switched on', () async {
-      writeResumeState();
-      await switchOn();
-
-      expect(await service.autoLoadStatePath(game, romPath, _NoAutoLoadStrategy(env.directoryService)),
-          isNull);
-    });
-
-    test('is null when the emulator has no state-capable save strategy', () async {
-      writeResumeState();
-      await switchOn('duckstation');
-
-      expect(
-          await service.autoLoadStatePath(
-              game, romPath, _IncapableSaveStrategyEmulator(env.directoryService)),
-          isNull);
-    });
-
-    test('is null when the game has no resume state', () async {
-      await switchOn();
-
-      expect(await service.autoLoadStatePath(game, romPath, Pcsx2Strategy(env.directoryService)),
-          isNull);
-    });
-
-    test('is null, not an error, when the stored switch has the wrong type', () async {
-      writeResumeState();
-      await env.prefs.setString(stateAutoLoadKey('pcsx2'), 'yes');
-
-      expect(await service.autoLoadStatePath(game, romPath, Pcsx2Strategy(env.directoryService)),
-          isNull);
-    });
-
-    test('is null, not an error, when looking the state up fails', () async {
-      writeResumeState();
-      await switchOn();
-      final failing = buildService((romm, registry) =>
-          _ThrowingLookupSaveSync(romm, env.directoryService, registry, env.prefs));
-
-      expect(await failing.autoLoadStatePath(game, romPath, Pcsx2Strategy(env.directoryService)),
-          isNull);
-    });
-  });
-
   group('launch', () {
-    test('uses the extra-args launch methods, with the state arguments, when a state exists', () async {
+    test('uses the extra-args launch methods, with the state arguments, when given a state', () async {
       final resume = writeResumeState();
-      await switchOn();
       final strategy = _RecordingStrategy(env.directoryService);
 
-      await service.launch(game, romPath, strategy);
+      await service.launch(game, romPath, strategy, loadStatePath: resume.path);
 
       expect(strategy.calls, ['launchWithHandleAndExtraArgs', 'launchWithExtraArgs'],
           reason: 'the handle launch, then the fire-and-forget fallback');
@@ -284,19 +200,18 @@ void main() {
     });
 
     test('a throwing launch with a state still rethrows', () async {
-      writeResumeState();
-      await switchOn();
+      final resume = writeResumeState();
       final strategy = _RecordingStrategy(env.directoryService,
           failWith: Exception('PCSX2 not found. Please download it first.'));
 
-      await expectLater(service.launch(game, romPath, strategy), throwsException);
+      await expectLater(
+          service.launch(game, romPath, strategy, loadStatePath: resume.path), throwsException);
 
       expect(strategy.calls, ['launchWithHandleAndExtraArgs']);
     });
 
     test('a throwing launch with a state still stops the activity tracker', () async {
-      writeResumeState();
-      await switchOn();
+      final resume = writeResumeState();
       await env.prefs.setString('romm_device_id', 'device-1');
       var heartbeatCount = 0;
       var clearCount = 0;
@@ -331,14 +246,17 @@ void main() {
       final strategy = _RecordingStrategy(env.directoryService,
           failWith: Exception('PCSX2 not found. Please download it first.'));
 
-      await expectLater(tracked.launch(game, romPath, strategy), throwsException);
+      await expectLater(
+          tracked.launch(game, romPath, strategy, loadStatePath: resume.path), throwsException);
 
       expect(heartbeatCount, 1, reason: 'the tracker started before the launch attempt');
       expect(clearCount, 1, reason: 'a failed launch must not leave the session showing as active');
     });
 
-    test('uses the plain launch methods when the switch is off', () async {
+    test('a plain launch never loads a state, even with a leftover auto-load setting', () async {
       writeResumeState();
+      // The removed "Auto-load resume state on launch" switch stored this.
+      await env.prefs.setBool('state_autoload_enabled_pcsx2', true);
       final strategy = _RecordingStrategy(env.directoryService);
 
       await service.launch(game, romPath, strategy);
@@ -347,33 +265,21 @@ void main() {
       expect(strategy.extraArgsSeen, isEmpty);
     });
 
-    test('uses the plain launch methods when the game has no resume state', () async {
-      await switchOn(); // no resume file on disk
-      final strategy = _RecordingStrategy(env.directoryService);
+    test('ignores the state for an emulator that cannot load one on launch', () async {
+      final resume = writeResumeState();
+      final strategy = _PlainRecordingNoStateLoadStrategy(env.directoryService);
 
-      await service.launch(game, romPath, strategy);
-
-      expect(strategy.calls, ['launchWithHandle', 'launch']);
-      expect(strategy.extraArgsSeen, isEmpty);
-    });
-
-    test('uses the plain launch methods for an emulator without auto-load, even if switched on', () async {
-      writeResumeState();
-      await switchOn();
-      final strategy = _PlainRecordingNoAutoLoadStrategy(env.directoryService);
-
-      await service.launch(game, romPath, strategy);
+      await service.launch(game, romPath, strategy, loadStatePath: resume.path);
 
       expect(strategy.calls, ['launchWithHandle', 'launch']);
     });
 
     test('keeps no state on the strategy: a later plain launch gets no -statefile', () async {
       final resume = writeResumeState();
-      await switchOn();
       final recorder = _RecordingDirectoryService(env.prefs);
       final strategy = _GatedFindStrategy(recorder, gatedCalls: 0);
 
-      await service.launch(game, romPath, strategy);
+      await service.launch(game, romPath, strategy, loadStatePath: resume.path);
       expect(recorder.argsFor(romPath), everyElement(contains(resume.path)),
           reason: 'sanity: the first launch did load the state');
       recorder.calls.clear();
@@ -384,19 +290,6 @@ void main() {
         ['-batch', '-fullscreen'],
         ['-batch', '-fullscreen'],
       ]);
-    });
-
-    test('still launches when the state lookup fails', () async {
-      writeResumeState();
-      await switchOn();
-      final failing = buildService((romm, registry) =>
-          _ThrowingLookupSaveSync(romm, env.directoryService, registry, env.prefs));
-      final strategy = _RecordingStrategy(env.directoryService);
-
-      final session = await failing.launch(game, romPath, strategy);
-
-      expect(session.emulatorId, 'pcsx2');
-      expect(strategy.calls, ['launchWithHandle', 'launch']);
     });
   });
 
@@ -413,7 +306,6 @@ void main() {
       romB = p.join(base.path, 'Gran Turismo 4 (SLUS-20312).iso');
       recorder = _RecordingDirectoryService(env.prefs);
       strategy = _GatedFindStrategy(recorder, gatedCalls: gatedCalls);
-      await switchOn();
     }
 
     List<String> withState(File state) => ['-batch', '-fullscreen', '-statefile', state.path];
@@ -423,9 +315,9 @@ void main() {
       final stateB = writeResume('SLUS-20312', 'B2C3D4E5');
       await setUpLaunches(gatedCalls: 1);
 
-      final launchA = service.launch(gameA, romA, strategy);
+      final launchA = service.launch(gameA, romA, strategy, loadStatePath: stateA.path);
       await strategy.entered[0].future; // A has resolved its state, not started yet
-      await service.launch(gameB, romB, strategy);
+      await service.launch(gameB, romB, strategy, loadStatePath: stateB.path);
       strategy.gates[0].complete();
       await launchA;
 
@@ -440,7 +332,7 @@ void main() {
       final stateA = writeResume('SCUS-97113', 'A1B2C3D4');
       await setUpLaunches(gatedCalls: 1);
 
-      final launchA = service.launch(gameA, romA, strategy);
+      final launchA = service.launch(gameA, romA, strategy, loadStatePath: stateA.path);
       await strategy.entered[0].future;
       await service.launch(gameB, romB, strategy);
       strategy.gates[0].complete();
@@ -458,9 +350,9 @@ void main() {
       final stateB = writeResume('SLUS-20312', 'B2C3D4E5');
       await setUpLaunches(gatedCalls: 2);
 
-      final launchA = service.launch(gameA, romA, strategy);
+      final launchA = service.launch(gameA, romA, strategy, loadStatePath: stateA.path);
       await strategy.entered[0].future;
-      final launchB = service.launch(gameB, romB, strategy);
+      final launchB = service.launch(gameB, romB, strategy, loadStatePath: stateB.path);
       await strategy.entered[1].future; // both have resolved their states
       strategy.gates[0].complete();
       await launchA;
@@ -468,7 +360,7 @@ void main() {
       await launchB;
 
       expect(recorder.argsFor(romA), everyElement(withState(stateA)),
-          reason: "A must not be started with B's resume state");
+          reason: "A must not be started with B's state");
       expect(recorder.argsFor(romA), isNotEmpty);
       expect(recorder.argsFor(romB), everyElement(withState(stateB)));
       expect(recorder.argsFor(romB), isNotEmpty);

@@ -42,7 +42,7 @@ class Pcsx2Strategy extends EmulatorStrategy {
   bool get supportsStateSync => true;
 
   @override
-  bool get supportsStateAutoLoad => true;
+  bool get supportsStateLoadOnLaunch => true;
 
   /// PCSX2: `-statefile <filename>` loads the given state at boot.
   @override

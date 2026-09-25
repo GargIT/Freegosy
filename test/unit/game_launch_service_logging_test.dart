@@ -2,36 +2,17 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:freegosy/core/emulator/game_launch_service.dart';
-import 'package:freegosy/core/emulator/strategies/pcsx2_strategy.dart';
 import 'package:freegosy/core/emulator/strategy_registry.dart';
 import 'package:freegosy/core/romm/romm_models.dart';
 import 'package:freegosy/core/romm/romm_service.dart';
 import 'package:freegosy/core/save/backup_repository.dart';
 import 'package:freegosy/core/save/backup_service.dart';
 import 'package:freegosy/core/save/save_sync_service.dart';
-import 'package:freegosy/core/save/state_sync_capable.dart';
 import 'package:freegosy/core/save/state_sync_service.dart';
 import 'package:path/path.dart' as p;
 
 import '../helpers/fake_romm_states_api.dart';
 import '../helpers/pcsx2_test_env.dart';
-
-/// PCSX2 as far as launching goes, but without state auto-load support.
-class _NoAutoLoadStrategy extends Pcsx2Strategy {
-  _NoAutoLoadStrategy(super.directoryService);
-
-  @override
-  bool get supportsStateAutoLoad => false;
-}
-
-/// Claims auto-load support under an emulator id whose save strategy cannot
-/// name a state (DuckStation's is not StateSyncCapable).
-class _IncapableSaveStrategyEmulator extends Pcsx2Strategy {
-  _IncapableSaveStrategyEmulator(super.directoryService);
-
-  @override
-  String get emulatorId => 'duckstation';
-}
 
 /// Captures the debugPrints of the current test that start with [tag], in order
 /// (other components log during a launch too).
@@ -68,11 +49,6 @@ void main() {
     );
   }
 
-  File writeResumeState() =>
-      File(p.join(env.statesDir, 'SCUS-97113 (A1B2C3D4).resume.p2s'))
-        ..createSync(recursive: true)
-        ..writeAsBytesSync(List.filled(200, 7));
-
   GameSession session() => GameSession(
         process: null,
         sessionStart: DateTime(2026, 1, 1),
@@ -87,58 +63,6 @@ void main() {
   });
 
   tearDown(() => base.delete(recursive: true));
-
-  group('autoLoadStatePath logs its outcome', () {
-    test('will load the resume state', () async {
-      final resume = writeResumeState();
-      await env.prefs.setBool(stateAutoLoadKey('pcsx2'), true);
-      final logs = _captureLogs('[AutoLoad]');
-
-      await buildService().autoLoadStatePath(game, romPath, Pcsx2Strategy(env.directoryService));
-
-      expect(logs, ['[AutoLoad] will load ${resume.path}']);
-    });
-
-    test('off for the emulator', () async {
-      writeResumeState();
-      final logs = _captureLogs('[AutoLoad]');
-
-      await buildService().autoLoadStatePath(game, romPath, Pcsx2Strategy(env.directoryService));
-
-      expect(logs, ["[AutoLoad] off for 'pcsx2'"]);
-    });
-
-    test('not supported by the emulator', () async {
-      await env.prefs.setBool(stateAutoLoadKey('pcsx2'), true);
-      final logs = _captureLogs('[AutoLoad]');
-
-      await buildService()
-          .autoLoadStatePath(game, romPath, _NoAutoLoadStrategy(env.directoryService));
-
-      expect(logs, ["[AutoLoad] not supported by 'pcsx2'"]);
-    });
-
-    test('not supported when the emulator has no state-capable save strategy', () async {
-      await env.prefs.setBool(stateAutoLoadKey('duckstation'), true);
-      final logs = _captureLogs('[AutoLoad]');
-
-      await buildService().autoLoadStatePath(
-          game, romPath, _IncapableSaveStrategyEmulator(env.directoryService));
-
-      expect(logs, [
-        "[AutoLoad] not supported by 'duckstation' (its save strategy cannot name a state)",
-      ]);
-    });
-
-    test('no resume state for the game', () async {
-      await env.prefs.setBool(stateAutoLoadKey('pcsx2'), true);
-      final logs = _captureLogs('[AutoLoad]');
-
-      await buildService().autoLoadStatePath(game, romPath, Pcsx2Strategy(env.directoryService));
-
-      expect(logs, ['[AutoLoad] no resume state for Ico (SCUS-97113)']);
-    });
-  });
 
   group('pushStatesAfterExit logs', () {
     test('that it was skipped when there is no state sync service', () async {

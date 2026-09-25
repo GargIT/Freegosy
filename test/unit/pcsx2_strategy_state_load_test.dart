@@ -51,8 +51,8 @@ void main() {
     strategy = Pcsx2Strategy(directoryService, platform: const PlatformInfo('windows', environment: {}));
   });
 
-  test('PCSX2 supports auto-loading a state', () {
-    expect(strategy.supportsStateAutoLoad, isTrue);
+  test('PCSX2 can load a state on launch', () {
+    expect(strategy.supportsStateLoadOnLaunch, isTrue);
     expect(strategy.stateLoadArgs('/x/y.p2s'), ['-statefile', '/x/y.p2s']);
   });
 

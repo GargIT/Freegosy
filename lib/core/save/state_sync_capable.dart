@@ -1,4 +1,3 @@
-import 'dart:io' as io;
 import 'dart:typed_data';
 import '../romm/romm_models.dart';
 import 'save_strategy.dart';
@@ -25,13 +24,4 @@ mixin StateSyncCapable on SaveStrategy {
   /// Sanity check applied to bytes downloaded from RomM before they replace a
   /// local state. The default only rejects empty content.
   bool looksLikeValidState(Uint8List bytes) => bytes.isNotEmpty;
-
-  /// The state file the emulator should load when [game] launches, for users
-  /// who opted in to auto-loading a resume state; null means none (the
-  /// default). Must never throw for a missing or unreadable state folder.
-  Future<io.File?> autoLoadState(Game game, String romPath) async => null;
 }
-
-/// AppPreferences key of the per-emulator "auto-load resume state on launch"
-/// opt-in (off by default, only honoured where the emulator supports it).
-String stateAutoLoadKey(String emulatorId) => 'state_autoload_enabled_$emulatorId';

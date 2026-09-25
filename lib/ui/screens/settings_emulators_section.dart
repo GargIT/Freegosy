@@ -226,7 +226,6 @@ Widget buildEmulatorsSection(
                       ),
                       _BiosStatusInline(emulatorId: emulatorId),
                       StateSyncToggleRow(emulatorId: emulatorId),
-                      StateAutoLoadToggleRow(emulatorId: emulatorId),
                       if (overridePath != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 2),
