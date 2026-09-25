@@ -3,21 +3,100 @@ import 'dart:io' as io;
 import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import '../../disc/serial_extraction_service.dart';
 import '../../platform/platform_info.dart';
 import '../../romm/romm_models.dart';
+import '../../storage/app_preferences.dart';
 import '../../storage/directory_service.dart';
+import '../save_state_info.dart';
 import '../save_strategy.dart';
+import '../state_sync_capable.dart';
+import 'duckstation_state_file.dart';
 
 /// Save strategy for DuckStation (PlayStation 1).
-class DuckstationSaveStrategy extends SaveStrategy {
+/// Memcards: {dataDir}/memcards/*.mcd
+/// States:   {dataDir}/savestates/{SERIAL}_{N|resume}.sav — synced separately
+///           through [StateSyncCapable] / StateSyncService, not by this
+///           strategy's save methods.
+class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
   final DirectoryService _directoryService;
   final PlatformInfo _platform;
+  final SerialExtractionService _serialExtractionService;
 
-  DuckstationSaveStrategy(this._directoryService, {PlatformInfo? platform})
-      : _platform = platform ?? PlatformInfo.current;
+  /// PS1's `SYSTEM.CNF` boot line, e.g. `BOOT = cdrom:\SLES_035.08;1`. The
+  /// `\s*=` right after `BOOT` keeps PS2's `BOOT2 =` line from matching.
+  static final _bootLinePattern = RegExp(
+      r'BOOT\s*=\s*cdrom[^:]*:\\?([A-Z]{4}[_-]\d{3}[.]\d{2})',
+      caseSensitive: false);
+
+  DuckstationSaveStrategy(this._directoryService, AppPreferences prefs,
+      {PlatformInfo? platform, SerialExtractionService? serialExtractionService})
+      : _platform = platform ?? PlatformInfo.current,
+        _serialExtractionService = serialExtractionService ??
+            SerialExtractionService(_directoryService, prefs, platform: platform);
 
   @override
   String get strategyId => 'duckstation';
+
+  /// Extracts the PS1 game serial (e.g. "SLES-03508") from the ROM. See
+  /// [SerialExtractionService] for the filename/CHD/ISO extraction strategy.
+  /// Returns null if the serial cannot be determined.
+  Future<String?> _extractSerial(String romPath) => _serialExtractionService.extractSerial(
+        romPath: romPath,
+        bootLinePattern: _bootLinePattern,
+        chdmanCandidates: [(emulatorId: 'duckstation', exeName: _getEmuExe())],
+      );
+
+  /// DuckStation's per-game state naming: `SERIAL_N.sav` or
+  /// `SERIAL_resume.sav` (System::GetGameSaveStateFileName). The character
+  /// class excludes path separators; `.sav.backup` doesn't match. The global
+  /// slots (`savestate_N.sav`) aren't tied to a game and are never matched.
+  static final _stateFilePattern = RegExp(r'^([A-Za-z0-9-]+)_(resume|\d{1,2})\.sav$');
+
+  static String _serialKey(String serial) =>
+      serial.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+
+  static RegExpMatch? _matchState(String fileName) {
+    final match = _stateFilePattern.firstMatch(fileName);
+    if (match == null || match.group(1)!.toLowerCase() == 'savestate') return null;
+    return match;
+  }
+
+  @override
+  Future<String> stateDirectory(Game game, String romPath) async =>
+      p.join(await _getBaseDir(platformSlug: game.platformSlug), 'savestates');
+
+  @override
+  Future<bool Function(String fileName)?> stateFileMatcher(
+      Game game, String romPath) async {
+    final serial = await _extractSerial(romPath);
+    if (serial == null) return null;
+    final wanted = _serialKey(serial);
+    return (String fileName) {
+      final match = _matchState(fileName);
+      return match != null && _serialKey(match.group(1)!) == wanted;
+    };
+  }
+
+  @override
+  bool looksLikeValidState(Uint8List bytes) => DuckstationStateFile.hasMagic(bytes);
+
+  @override
+  StateSlot slotOf(String fileName) {
+    final match = _matchState(fileName);
+    if (match == null) return UnknownStateSlot(fileName);
+    final slot = match.group(2)!;
+    return slot == 'resume' ? const AutoStateSlot() : NumberedStateSlot(int.parse(slot));
+  }
+
+  /// DuckStation records only its state format version, not the build that
+  /// wrote the state: there is no emulator version to compare.
+  @override
+  Future<StateFileInfo> describeState(File file) async {
+    final base = await super.describeState(file);
+    final format = await DuckstationStateFile.readFormatVersion(file);
+    return StateFileInfo(savedAt: base.savedAt, formatId: format?.toString());
+  }
 
   String _getEmuExe() {
     if (_platform.isWindows) return 'duckstation-qt-x64-ReleaseLTCG.exe';
@@ -172,19 +251,8 @@ class DuckstationSaveStrategy extends SaveStrategy {
       debugPrint('[DuckStation]   memcards dir missing: ${memcardsDir.path}');
     }
 
-    final statesDir = Directory(p.join(baseDir, 'savestates'));
-    if (await statesDir.exists()) {
-      await for (final entity in statesDir.list()) {
-        if (entity is File && p.basename(entity.path).toLowerCase().contains(stem.toLowerCase())) {
-          if (sessionStart != null) {
-            final stat = await entity.stat();
-            if (stat.modified.isBefore(sessionStart.subtract(const Duration(seconds: 2)))) continue;
-          }
-          result.add(entity);
-        }
-      }
-    }
-
+    // Save states are not part of the save: they sync separately through
+    // StateSyncService (see [StateSyncCapable]).
     return result;
   }
 
@@ -198,13 +266,15 @@ class DuckstationSaveStrategy extends SaveStrategy {
         final archive = ZipDecoder().decodeBytes(data);
         for (final entry in archive) {
           if (!entry.isFile) continue;
-          final entryLower = entry.name.toLowerCase();
-          final targetDirName = entryLower.endsWith('.mcd')
-              ? 'memcards'
-              : 'savestates';
-          final targetDir = p.join(baseDir, targetDirName);
-
-          final targetPath = p.normalize(p.join(targetDir, p.basename(entry.name)));
+          // Only memory cards are restored from a saves bundle. Older
+          // Freegosy versions bundled `savestates/` into it; states now sync
+          // separately through StateSyncService, so never write them here.
+          if (!entry.name.toLowerCase().endsWith('.mcd')) {
+            debugPrint('[DuckStation]   skipping non-memcard entry: ${entry.name}');
+            continue;
+          }
+          final targetPath =
+              p.normalize(p.join(baseDir, 'memcards', p.basename(entry.name)));
           await backupSave(targetPath);
           final outFile = File(targetPath);
           await outFile.parent.create(recursive: true);
@@ -213,9 +283,11 @@ class DuckstationSaveStrategy extends SaveStrategy {
         return true;
       }
 
-      final isState = !filename.toLowerCase().endsWith('.mcd');
-      final targetDirName = isState ? 'savestates' : 'memcards';
-      final targetPath = p.normalize(p.join(baseDir, targetDirName, filename));
+      if (!filename.toLowerCase().endsWith('.mcd')) {
+        debugPrint('[DuckStation]   ignoring non-memcard save upload: $filename');
+        return true;
+      }
+      final targetPath = p.normalize(p.join(baseDir, 'memcards', filename));
       await Directory(p.dirname(targetPath)).create(recursive: true);
       await backupSave(targetPath);
       await File(targetPath).writeAsBytes(data);

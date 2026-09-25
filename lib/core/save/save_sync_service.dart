@@ -85,7 +85,7 @@ class SaveSyncService {
     _pcsx2 = Pcsx2SaveStrategy(_directoryService, _prefs);
     _rpcs3 = Rpcs3SaveStrategy(_directoryService);
     _xenia = XeniaSaveStrategy(_directoryService);
-    _duckstation = DuckstationSaveStrategy(_directoryService);
+    _duckstation = DuckstationSaveStrategy(_directoryService, _prefs);
     _melonds = MelonDsSaveStrategy(_directoryService);
     _mgba = MgbaSaveStrategy(_directoryService);
     _ppsspp = PpssppSaveStrategy(_directoryService);
