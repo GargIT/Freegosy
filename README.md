@@ -8,7 +8,7 @@
 
 A cross-platform Flutter app for browsing your RomM library, downloading ROMs, and launching games directly in emulators—all from one intuitive interface.
 
-[**Watch the Feature Walkthrough on YouTube**](https://youtu.be/SE5BoFoA700)
+[**Watch the Feature Walkthrough on YouTube**](https://youtu.be/SYbO4I-p1hg)
 
 **Join our [Discord community](https://discord.gg/PEBUzGNMaw)** to chat, get help, and be the first to test new releases!
 
