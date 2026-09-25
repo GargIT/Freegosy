@@ -78,13 +78,16 @@ class _SlotRowState extends State<_SlotRow> {
     final theme = Theme.of(context);
     final details = [
       DateFormat('d MMM HH:mm').format(entry.savedAt),
-      entry.emulatorVersion == null
-          ? 'version unknown'
-          : '${entry.emulatorName} ${entry.emulatorVersion}',
+      entry.emulatorVersion != null
+          ? '${entry.emulatorName} ${entry.emulatorVersion}'
+          : entry.stateFormat != null
+              ? '${entry.emulatorName} state format ${entry.stateFormat}'
+              : 'version unknown',
       _where,
       // Don't repeat the emulator name: it's already in the version part
-      // above, unless the version is unknown and that part just says so.
-      if (widget.showEmulator && entry.emulatorVersion == null) entry.emulatorName,
+      // above, unless that part just says the version is unknown.
+      if (widget.showEmulator && entry.emulatorVersion == null && entry.stateFormat == null)
+        entry.emulatorName,
     ].join(' · ');
     return FocusEffectWrapper(
       autofocus: widget.autofocus,

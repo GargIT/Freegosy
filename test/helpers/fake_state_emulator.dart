@@ -56,7 +56,8 @@ class FakeStateSaveStrategy extends SaveStrategy with StateSyncCapable {
       final first = (await file.readAsString()).split('\n').first;
       return StateFileInfo(
           savedAt: base.savedAt,
-          emulatorVersion: first.startsWith('ver=') ? first.substring(4) : null);
+          emulatorVersion: first.startsWith('ver=') ? first.substring(4) : null,
+          formatId: first.startsWith('fmt=') ? first.substring(4) : null);
     } catch (_) {
       return base;
     }
@@ -98,3 +99,8 @@ class FakeStateEmulator extends Pcsx2Strategy {
 /// Content for a fakeemu state file: 200+ bytes, recording [version].
 List<int> fakeState(String version, {int seed = 1}) =>
     [...'ver=$version\n'.codeUnits, ...List.filled(200, seed)];
+
+/// Content for a fakeemu state that records only a state format [format], no
+/// emulator version (like emulators whose states don't name their build).
+List<int> fakeFormatOnlyState(String format) =>
+    [...'fmt=$format\n'.codeUnits, ...List.filled(200, 1)];
