@@ -1,10 +1,11 @@
-# Save-state sync (PCSX2)
+# Save-state sync (PCSX2, DuckStation)
 
-Freegosy can sync **PCSX2 save states** between your machines through your RomM
-server. Save states are the emulator snapshots you make with the quick-save keys
-(`SERIAL (CRC).01.p2s` and so on). They are **not** the in-game memory-card
-saves: those keep syncing through RomM's saves API exactly as before, and the
-two never mix.
+Freegosy can sync **PCSX2 and DuckStation save states** between your machines
+through your RomM server. Save states are the emulator snapshots you make with
+the quick-save keys (PCSX2's `SERIAL (CRC).01.p2s`, DuckStation's
+`SERIAL_1.sav` and so on). They are **not** the in-game memory-card saves:
+those keep syncing through RomM's saves API exactly as before, and the two
+never mix.
 
 This page describes the feature and how it behaves.
 
@@ -12,39 +13,52 @@ This page describes the feature and how it behaves.
 
 | | |
 |---|---|
-| Emulators | PCSX2 only for now. Every other emulator shows the toggle disabled with "Not supported yet". |
+| Emulators | PCSX2 and DuckStation for now. Every other emulator shows the toggle disabled with "Not supported yet". |
 | Default | **Off.** Turn it on per emulator. |
-| Where | Settings → Emulators → PCSX2 → "Sync save states"; "Sync Save States" button on a game's page. |
+| Where | Settings → Emulators → PCSX2 / DuckStation → "Sync save states"; "Sync Save States" button on a game's page. |
 | Resume | **Resume Game ▾** on the game page (see [Resume Game](#resume-game)). |
 | RomM API | `/api/states` (separate from `/api/saves`). Works on any RomM that has the states API. |
 | Privacy | States and their screenshots belong to your RomM user; Freegosy never makes them public. Checked on a real RomM: another user does not see them, and they do not appear in the game's screenshot gallery. |
 
 ## Using it
 
-1. Open **Settings → Emulators** and switch on **Sync save states** for PCSX2.
+1. Open **Settings → Emulators** and switch on **Sync save states** for PCSX2
+   and/or DuckStation.
 2. Play as usual. Before the game launches, Freegosy downloads states that are
    missing or newer on RomM. After you quit, it uploads the states you changed
    during that session.
 3. To sync without launching, open the game's page and press
    **Sync Save States**. It pulls, then pushes, and asks you about any conflict.
 
-Both machines should run the **same PCSX2 build**. A save state is tied to the
-emulator version, and Freegosy does not check or tag it. A state that PCSX2 can't
-load simply fails to load inside PCSX2; nothing is corrupted.
+Both machines should run the **same emulator build**. A save state is tied to
+the emulator version, and plain sync does not check it (Resume Game warns where
+it can, see [Versions](#resume-game)). A state the emulator can't load simply
+fails to load inside the emulator; nothing is corrupted.
 
 ## What is synced
 
-- Files in the PCSX2 states folder named `SERIAL (CRC8).NN.p2s` (numbered slots)
-  and `SERIAL (CRC8).resume.p2s` (the resume slot), for **the game being
-  launched** only. The serial is read from the ROM.
-- Ignored: `.p2s.backup` files, states of other games, and files smaller than
-  100 bytes (treated as aborted writes).
-- The file name on RomM is the same as the local file name.
+Only states of **the game being launched**, identified by the disc serial read
+from the ROM (a renamed ROM works; an unreadable disc image does not). Files
+smaller than 100 bytes are ignored (treated as aborted writes), and the file
+name on RomM is the same as the local file name. It uses the same folder
+detection as memory-card sync.
 
-States folder: `<PCSX2 folder>/sstates` for a portable install (the folder that
-contains `memcards`), `~/.config/PCSX2/sstates` on a standard Linux install,
-`~/Library/Application Support/PCSX2/sstates` on macOS, and `<root parent>/states`
-for EmuDeck layouts. It uses the same folder detection as memory-card sync.
+**PCSX2**
+- `SERIAL (CRC8).NN.p2s` (numbered slots) and `SERIAL (CRC8).resume.p2s` (the
+  resume slot). `.p2s.backup` files are ignored.
+- States folder: `<PCSX2 folder>/sstates` for a portable install (the folder
+  that contains `memcards`), `~/.config/PCSX2/sstates` on a standard Linux
+  install, `~/Library/Application Support/PCSX2/sstates` on macOS, and
+  `<root parent>/states` for EmuDeck layouts.
+
+**DuckStation**
+- `SERIAL_N.sav` (numbered slots) and `SERIAL_resume.sav` (the resume state
+  DuckStation writes on exit). `.sav.backup` files and the global slots
+  (`savestate_N.sav`, not tied to a game) are ignored.
+- States folder: `<DuckStation folder>/savestates` for a portable install (a
+  `portable.txt` or `settings.ini` next to the exe, which is how Freegosy
+  installs it), `%LOCALAPPDATA%\DuckStation\savestates` on a standard Windows
+  install, and DuckStation's data folder elsewhere.
 
 ## When it runs
 
@@ -68,7 +82,7 @@ released: a resume state made by a different PCSX2 version crashed PCSX2 at boot
 and because the switch applied to every launch, the game could not be started
 again until the switch was turned off. **Resume Game** replaces it with a
 choice made for one launch at a time, and works for any emulator that
-implements the contract below (PCSX2 today).
+implements the contract below (PCSX2 and DuckStation today).
 
 **The buttons.** When a game has at least one save state, its page shows
 **Resume Game ▾** above **Play Game (fresh start)**. **Play Game** always
@@ -77,9 +91,9 @@ starts the game fresh, whether or not states exist.
 **What Resume loads.** Pressing **Resume Game** loads the newest state. The
 **▾** (or **X** on a controller) opens a centred dialog — not anchored to the
 button — listing every state: when it was saved, the emulator version it was
-made with, where it is (`this PC`, `RomM`, or `newer on RomM`), and a ⚠ line
-when its version differs from the installed one. **B** on a controller closes
-the dialog.
+made with (or, when the state doesn't record one, its state format), where it
+is (`this PC`, `RomM`, or `newer on RomM`), and a ⚠ line when its version
+differs from the installed one. **B** on a controller closes the dialog.
 
 **Sources.** States on this PC are always listed. States on RomM are added
 too when **Sync save states** is on for that emulator and RomM is reachable:
@@ -133,6 +147,14 @@ when the numbers match the installed release (`2.3.72.0`) the build can't be
 told apart from it, so there's no ⚠ and no prompt. Different numbers still
 warn.
 
+DuckStation states don't record the build that made them, only DuckStation's
+state format number, so the list shows `DuckStation state format 86` and never
+warns or prompts. A DuckStation too old for a state is expected to refuse it
+with its own error rather than crash (not yet checked by hand). DuckStation
+states have no thumbnail in the list either: its screenshot is stored
+zstd-compressed, which Freegosy can't decode, so DuckStation uploads carry no
+screenshot.
+
 ## Conflicts and safety
 
 Freegosy keeps a small record per state file (server id, hash of the bytes at the
@@ -164,7 +186,8 @@ Safety rules that always apply:
   after a `.bak` copy exists (`.bak`, `.bak1`, `.bak2` rotate beside the state, so
   expect up to a few extra copies per slot). If the backup can't be made, the
   state is left untouched.
-- Downloads must be non-trivial and start with the zip header PCSX2 states use.
+- Downloads must be non-trivial and start with the header the emulator's
+  states use (PCSX2: the zip header; DuckStation: `DUCC`).
 - "Keep local" validates the local file before uploading, so a truncated state
   can never overwrite a good copy on RomM.
 - Server-supplied names are checked to be plain file names (no path separators,
@@ -172,7 +195,7 @@ Safety rules that always apply:
 
 ## Known limitations
 
-- PCSX2 only; other emulators can opt in later.
+- PCSX2 and DuckStation only; other emulators can opt in later.
 - Deleting a state does not delete it on RomM, and deletes are not propagated
   between machines.
 - One RomM account per Freegosy install. After switching accounts, states you had
@@ -245,8 +268,8 @@ Safety rules that always apply:
     connection was set up).
 - **A conflict keeps coming back** — you cancelled it. Press **Sync Save States**
   and choose a side.
-- **A state won't load in PCSX2** — the two machines are on different PCSX2
-  versions.
+- **A state won't load in PCSX2 or DuckStation** — the two machines are on
+  different emulator versions.
 - **No Resume button** — the game has no state of at least 100 bytes that the
   emulator's naming matches; or the emulator can't load a state on launch; or
   the state's emulator can't be determined.
@@ -264,11 +287,13 @@ Safety rules that always apply:
   `EmulatorStrategy.supportsStateSync`. A unit test fails if the two disagree.
 - To add Resume Game for an emulator: an `EmulatorStrategy` returns `true`
   from `supportsStateLoadOnLaunch` and the command-line arguments that load a
-  state from `stateLoadArgs` (PCSX2: `-statefile <path>`); optionally
+  state from `stateLoadArgs` (PCSX2 and DuckStation: `-statefile <path>`); optionally
   implement `installedVersion()` so mismatched-version warnings work. On the
   `StateSyncCapable` save strategy, `slotOf`, `describeState` and
   `stateScreenshot` are all optional (each has a safe default) but describe
-  the slot label, the emulator version and a thumbnail respectively.
+  the slot label, the emulator version and a thumbnail respectively. When a
+  state records no emulator version, `describeState` can still return its
+  `formatId`, which the slot list shows instead (DuckStation does this).
   `GameLaunchService.launch(..., loadStatePath: ...)` passes `stateLoadArgs`
   to the base `launchWithExtraArgs` / `launchWithHandleAndExtraArgs` methods
   for that launch only; nothing is stored on the shared strategy (launches of
@@ -309,11 +334,16 @@ Safety rules that always apply:
   is up but not answering (it should be delayed by no more than the ~20 s list
   timeout plus one 30 s download stall); and resuming a multi-disc or cue/bin
   game on real hardware.
+- DuckStation is covered by unit tests (header, naming, slots, launch
+  arguments) against a real state's layout, but not yet verified by hand: a
+  two-machine round trip, Resume, a multi-disc `.m3u` game, and what
+  DuckStation does with a state from a newer build.
 
 ## Possible follow-ups
 
 - Headless CLI `--resume`: the `launch` command currently always starts
   fresh; a flag to resume the newest (or a named) state would bring Resume
   Game to scripted/headless launches too.
-- Other emulators (DuckStation, RetroArch, PPSSPP, ares, Dolphin).
+- Other emulators (RetroArch, PPSSPP, ares, Dolphin).
+- DuckStation thumbnails, if a zstd decoder becomes available.
 - Deleting states on RomM and propagating deletes.
