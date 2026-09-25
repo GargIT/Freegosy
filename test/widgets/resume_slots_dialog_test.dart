@@ -121,4 +121,36 @@ void main() {
     expect(find.text('1 Jan 00:00 · EmuA v2.8.2 · this PC'), findsOneWidget);
     expect(find.text('2 Jan 00:00 · version unknown · this PC · EmuB'), findsOneWidget);
   });
+
+  testWidgets('a state with a format but no emulator version shows the format, named once',
+      (tester) async {
+    final formatEntries = [
+      ResumeEntry(
+        emulatorId: 'emuB',
+        emulatorName: 'EmuB',
+        fileName: 'b.st',
+        slot: const NumberedStateSlot(1),
+        savedAt: DateTime(2026, 1, 2),
+        where: ResumeWhere.thisPc,
+        stateFormat: '86',
+      ),
+      ResumeEntry(
+        emulatorId: 'emuA',
+        emulatorName: 'EmuA',
+        fileName: 'a.st',
+        slot: const AutoStateSlot(),
+        savedAt: DateTime(2026, 1, 1),
+        where: ResumeWhere.thisPc,
+        emulatorVersion: 'v2.8.2',
+        stateFormat: '0x9A590000',
+      ),
+    ];
+    await tester.pumpWidget(_Harness(entries: formatEntries, thumbnailFor: (e) async => null));
+    await tester.tap(find.byType(ElevatedButton));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 Jan 00:00 · EmuB state format 86 · this PC'), findsOneWidget);
+    expect(find.text('1 Jan 00:00 · EmuA v2.8.2 · this PC'), findsOneWidget,
+        reason: 'the emulator version wins over the format when both are known');
+  });
 }

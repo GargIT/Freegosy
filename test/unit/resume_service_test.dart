@@ -402,6 +402,36 @@ void main() {
   });
 
   // ─── 10 ───────────────────────────────────────────────────────────────────
+  test('a state recording only its format carries the format and no version or warning', () async {
+    File(p.join(statesDir, 'GAME.1.st'))
+      ..parent.createSync(recursive: true)
+      ..writeAsBytesSync(fakeFormatOnlyState('86'));
+    final service = build();
+
+    final entry = entryFor(await lastOf(service.entriesFor(game, [romPath])), 'GAME.1.st');
+
+    expect(entry.stateFormat, '86');
+    expect(entry.emulatorVersion, isNull);
+    expect(entry.compat, StateCompat.unknown);
+  });
+
+  test('the format is unknown while a newer RomM copy is not downloaded', () async {
+    await syncOn();
+    File(p.join(statesDir, 'GAME.1.st'))
+      ..parent.createSync(recursive: true)
+      ..writeAsBytesSync(fakeFormatOnlyState('86'));
+    final state = api.seed('42', 'GAME.1.st', fakeFormatOnlyState('87'));
+    await StateRecordStore(prefs).save('42', {
+      'GAME.1.st': StateSyncRecord(rommStateId: state.id, lastSyncedHash: 'x', serverUpdatedAt: 'old'),
+    });
+    final service = build();
+
+    final entry = entryFor(await lastOf(service.entriesFor(game, [romPath])), 'GAME.1.st');
+
+    expect(entry.newerOnRomm, isTrue);
+    expect(entry.stateFormat, isNull);
+  });
+
   test('emulators that cannot load states on launch take no part', () async {
     final noLoad = FakeStateEmulator(ds, loadsStates: false);
     writeLocal('GAME.auto.st', '1.2.0');

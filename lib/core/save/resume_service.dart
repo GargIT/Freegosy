@@ -27,6 +27,7 @@ class ResumeEntry {
     required this.where,
     this.newerOnRomm = false,
     this.emulatorVersion,
+    this.stateFormat,
     this.installedVersion,
     this.compat = StateCompat.unknown,
     this.localFile,
@@ -48,6 +49,10 @@ class ResumeEntry {
   /// null (unknown until downloaded).
   final bool newerOnRomm;
   final String? emulatorVersion;
+
+  /// The emulator's own state-format id, shown when the state doesn't record
+  /// [emulatorVersion]. Display only; null when unknown, like the version.
+  final String? stateFormat;
   final String? installedVersion;
   final StateCompat compat;
   final io.File? localFile;
@@ -206,6 +211,7 @@ class ResumeService {
         where: ResumeWhere.both,
         newerOnRomm: newer,
         emulatorVersion: newer ? null : existing.emulatorVersion,
+        stateFormat: newer ? null : existing.stateFormat,
         installedVersion: existing.installedVersion,
         compat: newer ? StateCompat.unknown : existing.compat,
         localFile: existing.localFile,
@@ -344,6 +350,7 @@ class ResumeService {
           savedAt: info.savedAt,
           where: ResumeWhere.thisPc,
           emulatorVersion: info.emulatorVersion,
+          stateFormat: info.formatId,
           installedVersion: source.installed,
           compat: compatOf(info.emulatorVersion, source.installed),
           localFile: entity,
