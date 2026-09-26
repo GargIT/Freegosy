@@ -9,6 +9,7 @@
 #include <flutter_secure_storage_windows/flutter_secure_storage_windows_plugin.h>
 #include <gamepads_windows/gamepads_windows_plugin_c_api.h>
 #include <url_launcher_windows/url_launcher_windows.h>
+#include <zstandard_windows/zstandard_windows_plugin_c_api.h>
 
 void RegisterPlugins(flutter::PluginRegistry* registry) {
   FlutterSecureStorageWindowsPluginRegisterWithRegistrar(
@@ -17,4 +18,6 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("GamepadsWindowsPluginCApi"));
   UrlLauncherWindowsRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("UrlLauncherWindows"));
+  ZstandardWindowsPluginCApiRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("ZstandardWindowsPluginCApi"));
 }

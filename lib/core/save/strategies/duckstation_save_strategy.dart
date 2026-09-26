@@ -22,6 +22,7 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
   final DirectoryService _directoryService;
   final PlatformInfo _platform;
   final SerialExtractionService _serialExtractionService;
+  final ZstdDecompressor? _zstd;
 
   /// PS1's `SYSTEM.CNF` boot line, e.g. `BOOT = cdrom:\SLES_035.08;1`. The
   /// `\s*=` right after `BOOT` keeps PS2's `BOOT2 =` line from matching.
@@ -30,8 +31,11 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
       caseSensitive: false);
 
   DuckstationSaveStrategy(this._directoryService, AppPreferences prefs,
-      {PlatformInfo? platform, SerialExtractionService? serialExtractionService})
+      {PlatformInfo? platform,
+      SerialExtractionService? serialExtractionService,
+      ZstdDecompressor? zstd})
       : _platform = platform ?? PlatformInfo.current,
+        _zstd = zstd,
         _serialExtractionService = serialExtractionService ??
             SerialExtractionService(_directoryService, prefs, platform: platform);
 
@@ -97,6 +101,10 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
     final format = await DuckstationStateFile.readFormatVersion(file);
     return StateFileInfo(savedAt: base.savedAt, formatId: format?.toString());
   }
+
+  @override
+  Future<Uint8List?> stateScreenshot(File file) =>
+      DuckstationStateFile.readScreenshot(file, zstd: _zstd);
 
   String _getEmuExe() {
     if (_platform.isWindows) return 'duckstation-qt-x64-ReleaseLTCG.exe';

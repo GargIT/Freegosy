@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:freegosy/core/platform/platform_info.dart';
 import 'package:freegosy/core/save/strategies/duckstation_save_strategy.dart';
+import 'package:freegosy/core/save/strategies/duckstation_state_file.dart';
 import 'package:freegosy/core/storage/directory_service.dart';
 import 'package:freegosy/core/storage/shared_preferences_app_preferences.dart';
 import 'package:path/path.dart' as p;
@@ -32,7 +33,7 @@ class DuckstationTestEnv {
   String get statesDir => p.join(exeDir, 'savestates');
   String get memcardsDir => p.join(exeDir, 'memcards');
 
-  static Future<DuckstationTestEnv> create(Directory base) async {
+  static Future<DuckstationTestEnv> create(Directory base, {ZstdDecompressor? zstd}) async {
     final exeDir = p.join(base.path, 'duckstation');
     await Directory(p.join(exeDir, 'memcards')).create(recursive: true);
     await File(p.join(exeDir, 'portable.txt')).writeAsString('');
@@ -46,6 +47,7 @@ class DuckstationTestEnv {
       directoryService,
       prefs,
       platform: const PlatformInfo('windows', environment: {}),
+      zstd: zstd,
     );
     return DuckstationTestEnv._(exeDir, directoryService, strategy);
   }

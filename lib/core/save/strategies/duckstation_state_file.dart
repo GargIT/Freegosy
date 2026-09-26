@@ -1,5 +1,11 @@
 import 'dart:io' as io;
+import 'dart:isolate';
 import 'package:flutter/foundation.dart';
+import 'package:zstandard/zstandard.dart';
+import '../rgba_png.dart';
+
+/// Decompresses one complete zstd frame; null when it can't.
+typedef ZstdDecompressor = Future<Uint8List?> Function(Uint8List compressed);
 
 /// Reads what a DuckStation `.sav` state records about itself.
 ///
@@ -12,6 +18,18 @@ class DuckstationStateFile {
   DuckstationStateFile._();
 
   static const _magic = [0x44, 0x55, 0x43, 0x43]; // "DUCC"
+
+  /// Header bytes up to and including the screenshot fields.
+  static const _screenshotHeaderEnd = 0xC8;
+
+  /// Screenshot compression types in the header.
+  static const _uncompressed = 0;
+  static const _zstd = 2;
+
+  /// Bounds that no real screenshot comes near (DuckStation writes 256×192
+  /// at ~50 KB): anything larger is a corrupt header, not worth reading.
+  static const _maxDimension = 4096;
+  static const _maxStoredBytes = 16 * 1024 * 1024;
 
   /// Whether [head] starts with DuckStation's state magic.
   static bool hasMagic(Uint8List head) {
@@ -43,4 +61,44 @@ class DuckstationStateFile {
       await raf?.close();
     }
   }
+
+  /// The state's screenshot as a PNG, or null when it has none, it can't be
+  /// read, or the header is implausible. DuckStation stores raw RGBA pixels,
+  /// zstd-compressed by default; [zstd] decompresses them (the zstandard
+  /// plugin unless a test passes a fake). Never throws.
+  static Future<Uint8List?> readScreenshot(io.File file, {ZstdDecompressor? zstd}) async {
+    io.RandomAccessFile? raf;
+    try {
+      raf = await file.open();
+      final head = await raf.read(_screenshotHeaderEnd);
+      if (head.length < _screenshotHeaderEnd || !hasMagic(head)) return null;
+      final fields = ByteData.sublistView(head);
+      final compression = fields.getUint32(0xB4, Endian.little);
+      final width = fields.getUint32(0xB8, Endian.little);
+      final height = fields.getUint32(0xBC, Endian.little);
+      final size = fields.getUint32(0xC0, Endian.little);
+      final offset = fields.getUint32(0xC4, Endian.little);
+      if (compression != _uncompressed && compression != _zstd) return null;
+      if (width == 0 || height == 0 || width > _maxDimension || height > _maxDimension) return null;
+      if (size == 0 || size > _maxStoredBytes || offset < _screenshotHeaderEnd) return null;
+      if (offset + size > await raf.length()) return null;
+
+      await raf.setPosition(offset);
+      final stored = await raf.read(size);
+      if (stored.length != size) return null;
+      final pixels = compression == _zstd
+          ? await (zstd ?? _zstandard)(stored)
+          : stored;
+      if (pixels == null || pixels.length != width * height * 4) return null;
+      return await Isolate.run(() => encodeRgbaPng(width, height, pixels));
+    } catch (e) {
+      debugPrint('[DuckStation] cannot read screenshot of ${file.path}: $e');
+      return null;
+    } finally {
+      await raf?.close();
+    }
+  }
+
+  static Future<Uint8List?> _zstandard(Uint8List compressed) =>
+      Zstandard().decompress(compressed);
 }

@@ -104,6 +104,29 @@ void main() {
     expect(info.emulatorVersion, isNull);
   });
 
+  test('stateScreenshot returns the state\'s screenshot as a PNG, through the given zstd', () async {
+    final pixels = List.filled(2 * 2 * 4, 200);
+    final screenshotEnv = await DuckstationTestEnv.create(
+        await base.createTemp('shot'),
+        zstd: (compressed) async => Uint8List.fromList(pixels));
+    await Directory(screenshotEnv.statesDir).create(recursive: true);
+    final file = File(p.join(screenshotEnv.statesDir, stateName));
+    await file.writeAsBytes(duckstationState(payload: [0x28, 0xB5, 0x2F, 0xFD, 1, 2, 3]));
+
+    final png = await (screenshotEnv.strategy as StateSyncCapable).stateScreenshot(file);
+
+    expect(png, isNotNull);
+    expect(png!.sublist(1, 4), 'PNG'.codeUnits);
+  });
+
+  test('stateScreenshot is null for a state without a readable screenshot', () async {
+    await Directory(env.statesDir).create(recursive: true);
+    final file = File(p.join(env.statesDir, stateName));
+    await file.writeAsBytes(List.filled(300, 0xAB));
+
+    expect(await (env.strategy as StateSyncCapable).stateScreenshot(file), isNull);
+  });
+
   group('states stay out of the memory-card save', () {
     Uint8List zip(Map<String, List<int>> entries) {
       final archive = Archive();

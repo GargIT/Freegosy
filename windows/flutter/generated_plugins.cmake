@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   flutter_secure_storage_windows
   gamepads_windows
   url_launcher_windows
+  zstandard_windows
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
