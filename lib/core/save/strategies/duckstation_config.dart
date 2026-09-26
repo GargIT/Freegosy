@@ -120,7 +120,10 @@ String duckstationSafeFileName(String name) =>
 class DuckstationGameDb {
   DuckstationGameDb._();
 
-  static final _cache = <String, ({DateTime modified, Map<String, String> titles})>{};
+  static final _cache = <String, ({DateTime modified, Object value})>{};
+
+  static String _gameDbPath(String resourcesDir) => '$resourcesDir${io.Platform.pathSeparator}gamedb.yaml';
+  static String _discSetsPath(String resourcesDir) => '$resourcesDir${io.Platform.pathSeparator}discsets.yaml';
 
   /// The card title for [serial], or null when the database doesn't know it
   /// or can't be read.
@@ -128,25 +131,34 @@ class DuckstationGameDb {
       {required bool usePlaylistTitle}) async {
     final key = serial.toUpperCase();
     if (usePlaylistTitle) {
-      final set = await _titles('$resourcesDir${io.Platform.pathSeparator}discsets.yaml', parseDiscSets);
+      final set = await _load(_discSetsPath(resourcesDir), 'titles', parseDiscSets);
       final title = set?[key];
       if (title != null) return title;
     }
-    final games = await _titles('$resourcesDir${io.Platform.pathSeparator}gamedb.yaml', parseGameDb);
+    final games = await _load(_gameDbPath(resourcesDir), 'titles', parseGameDb);
     return games?[key];
   }
 
-  static Future<Map<String, String>?> _titles(
-      String path, Map<String, String> Function(String text) parse) async {
+  /// Every disc serial of the multi-disc game [serial] belongs to (per
+  /// `discsets.yaml`), else just [serial]. A later disc often reads the
+  /// saves an earlier one wrote under its own serial.
+  static Future<List<String>> discSetSerials(String resourcesDir, String serial) async {
+    final key = serial.toUpperCase();
+    final members = await _load(_discSetsPath(resourcesDir), 'members', parseDiscSetMembers);
+    return members?[key] ?? [key];
+  }
+
+  static Future<T?> _load<T extends Object>(String path, String kind, T Function(String text) parse) async {
     try {
       final file = io.File(path);
       if (!await file.exists()) return null;
       final modified = await file.lastModified();
-      final cached = _cache[path];
-      if (cached != null && cached.modified == modified) return cached.titles;
-      final titles = await Isolate.run(() => parse(io.File(path).readAsStringSync()));
-      _cache[path] = (modified: modified, titles: titles);
-      return titles;
+      final cacheKey = '$path#$kind';
+      final cached = _cache[cacheKey];
+      if (cached != null && cached.modified == modified) return cached.value as T;
+      final value = await Isolate.run(() => parse(io.File(path).readAsStringSync()));
+      _cache[cacheKey] = (modified: modified, value: value);
+      return value;
     } catch (e) {
       debugPrint('[DuckStation] cannot read $path: $e');
       return null;
@@ -191,20 +203,41 @@ class DuckstationGameDb {
     return result;
   }
 
-  /// `discsets.yaml`: a list of sets, each `- name:` with an optional
-  /// `saveName:` and a `serials:` list; every serial maps to the set's title.
+  /// `discsets.yaml`: every serial maps to its set's `saveName`, else `name`.
   static Map<String, String> parseDiscSets(String text) {
     final result = <String, String>{};
+    for (final set in _discSets(text)) {
+      final title = set.title;
+      if (title == null || title.isEmpty) continue;
+      for (final serial in set.serials) {
+        result.putIfAbsent(serial, () => title);
+      }
+    }
+    return result;
+  }
+
+  /// `discsets.yaml`: every serial maps to all serials of its set.
+  static Map<String, List<String>> parseDiscSetMembers(String text) {
+    final result = <String, List<String>>{};
+    for (final set in _discSets(text)) {
+      for (final serial in set.serials) {
+        result.putIfAbsent(serial, () => set.serials);
+      }
+    }
+    return result;
+  }
+
+  /// The sets of `discsets.yaml`: each `- name:` with an optional
+  /// `saveName:` and a `serials:` list.
+  static List<({String? title, List<String> serials})> _discSets(String text) {
+    final result = <({String? title, List<String> serials})>[];
     String? name;
     String? saveName;
-    final serials = <String>[];
+    var serials = <String>[];
     var inSerials = false;
     void flush() {
-      final title = saveName ?? name;
-      if (title != null && title.isNotEmpty) {
-        for (final serial in serials) {
-          result.putIfAbsent(serial, () => title);
-        }
+      if (name != null || serials.isNotEmpty) {
+        result.add((title: saveName ?? name, serials: List.unmodifiable(serials)));
       }
     }
 
@@ -214,7 +247,7 @@ class DuckstationGameDb {
         flush();
         name = _yamlScalar(start.group(1)!);
         saveName = null;
-        serials.clear();
+        serials = <String>[];
         inSerials = false;
         continue;
       }

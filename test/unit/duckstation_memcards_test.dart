@@ -4,6 +4,7 @@ import 'package:archive/archive_io.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:freegosy/core/emulator/strategy_registry.dart';
 import 'package:freegosy/core/romm/romm_models.dart';
+import 'package:freegosy/core/save/ps1_memory_card.dart';
 import 'package:freegosy/core/save/save_strategy.dart';
 import 'package:freegosy/core/save/save_sync_service.dart';
 import 'package:freegosy/core/save/strategies/duckstation_config.dart';
@@ -13,6 +14,7 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../helpers/duckstation_test_env.dart';
+import '../helpers/ps1_card_builder.dart';
 import 'save_sync_service_test.mocks.dart';
 
 void main() {
@@ -94,13 +96,13 @@ void main() {
       expect(await saveFiles(), ['SLES-02605_1.mcd', 'SLES-02605_2.mcd']);
     });
 
-    test('a per-game port next to a shared one: only the per-game card', () async {
+    test('local backups keep the whole shared card next to the per-game one', () async {
       await cardTypes('Card1Type = PerGame\nCard2Type = Shared');
       await env.writeCard('shared_card_2.mcd');
-      expect(await saveFiles(), ['SLES-02605_1.mcd']);
+      expect(await saveFiles(), ['SLES-02605_1.mcd', 'shared_card_2.mcd']);
     });
 
-    test('only shared: the shared card, for local backups (sync is blocked)', () async {
+    test('only shared: local backups keep the whole shared card', () async {
       await cardTypes('Card1Type = Shared');
       expect(await saveFiles(), ['shared_card_1.mcd']);
     });
@@ -195,11 +197,9 @@ void main() {
   });
 
   group('when sync is not possible', () {
-    test('one shared card: blocked, telling the user to choose a card per game', () async {
+    test('one shared card: not blocked, the game\'s saves are synced out of it', () async {
       await cardTypes('Card1Type = Shared');
-      final reason = await env.strategy.saveSyncBlockedReason(game, romPath());
-      expect(reason, contains('shared by all games'));
-      expect(reason, contains('Separate Card Per Game'));
+      expect(await env.strategy.saveSyncBlockedReason(game, romPath()), isNull);
     });
 
     test('no card or a non-persistent one: blocked, nothing to sync', () async {
@@ -215,14 +215,14 @@ void main() {
       expect(await env.strategy.saveSyncBlockedReason(game, romPath()), isNull);
     });
 
-    test('a per-game override lifts a global shared card', () async {
-      await cardTypes('Card1Type = Shared');
+    test('a per-game override lifts a global non-persistent card', () async {
+      await cardTypes('Card1Type = NonPersistent');
       await env.writeGameSettings('SLES-02605', '[MemoryCards]\nCard1Type = PerGameTitle\n');
       expect(await env.strategy.saveSyncBlockedReason(game, romPath()), isNull);
     });
 
     test('SaveSyncService push and pull stop before contacting RomM', () async {
-      await cardTypes('Card1Type = Shared');
+      await cardTypes('Card1Type = NonPersistent');
       SharedPreferences.setMockInitialValues({});
       final prefs = SharedPreferencesAppPreferences(await SharedPreferences.getInstance());
       final romm = MockRommService();
@@ -233,6 +233,185 @@ void main() {
       await expectLater(sync.pullSave(game, romPath(), emulatorId: 'duckstation'),
           throwsA(isA<SaveSyncNotPossibleException>()));
       verifyNever(romm.fetchCapabilities());
+    });
+  });
+
+  group('a card shared by all games', () {
+    final colinSetting = (name: 'BESLES-02605-SETTING', blocks: [3], fill: 0x11);
+    final colinGame = (name: 'BESLES-02605GAME01', blocks: [5, 6], fill: 0x22);
+    final otherGame = (name: 'BASLUS-00594GAME', blocks: [1, 2], fill: 0x33);
+    bool colin(String name) => name.substring(2, 12) == 'SLES-02605';
+
+    setUp(() => cardTypes('Card1Type = Shared'));
+
+    Future<File> writeShared(List<TestSave> saves, {String name = 'shared_card_1.mcd'}) async {
+      final file = File(p.join(env.memcardsDir, name));
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(buildPs1Card(saves));
+      return file;
+    }
+
+    Future<List<File>> syncFiles({DateTime? sessionStart}) async =>
+        (await env.strategy.getSaveFilesWithScreenshots(game, romPath(), sessionStart: sessionStart))
+            .keys
+            .toList();
+
+    group('push', () {
+      test('uploads a card holding only this game\'s saves, named by serial and port', () async {
+        final shared = await writeShared([otherGame, colinSetting, colinGame]);
+
+        final file = (await syncFiles()).single;
+
+        expect(p.basename(file.path), 'SLES-02605_1.mcd');
+        expect(p.isWithin(env.memcardsDir, file.path), isFalse, reason: 'a temporary copy, not a card of DuckStation\'s');
+        final card = Ps1MemoryCard.parse(file.readAsBytesSync());
+        expect(card.saves.map((s) => s.name), [colinSetting.name, colinGame.name]);
+        expect(file.readAsBytesSync(), Ps1MemoryCard.parse(shared.readAsBytesSync()).extract(colin));
+      });
+
+      test('the shared card\'s own CardNPath is honoured', () async {
+        await cardTypes('Card1Type = Shared\nCard1Path = my_card.mcd');
+        await writeShared([colinSetting], name: 'my_card.mcd');
+
+        expect((await syncFiles()).map((f) => p.basename(f.path)), ['SLES-02605_1.mcd']);
+      });
+
+      test('nothing when the game has no saves on the card, or the card is missing or damaged', () async {
+        expect(await syncFiles(), isEmpty, reason: 'no card');
+        await writeShared([otherGame]);
+        expect(await syncFiles(), isEmpty, reason: 'no saves of this game');
+        await File(p.join(env.memcardsDir, 'shared_card_1.mcd')).writeAsBytes(List.filled(1000, 1));
+        expect(await syncFiles(), isEmpty, reason: 'not a memory card');
+      });
+
+      test('nothing when the card was not written during the session', () async {
+        final shared = await writeShared([colinSetting]);
+        await shared.setLastModified(DateTime(2026, 1, 1));
+
+        expect(await syncFiles(sessionStart: DateTime(2026, 6, 1)), isEmpty);
+        expect(await syncFiles(sessionStart: DateTime(2025, 6, 1)), hasLength(1));
+      });
+
+      test('nothing when the serial can\'t be read', () async {
+        await writeShared([colinSetting]);
+        final unknown = Game(id: 'g2', name: 'No Serial', platformSlug: 'psx', fileSize: 0);
+
+        final files = await env.strategy.getSaveFilesWithScreenshots(unknown, p.join(base.path, 'No Serial.iso'));
+
+        expect(files, isEmpty);
+      });
+
+      test('a multi-disc game takes the saves of all its discs', () async {
+        await env.writeGameDb('', discsets: '- name: "Two Discs"\n  serials:\n    - SLES-02605\n    - SLES-12605\n');
+        await writeShared([colinSetting, (name: 'BESLES-12605DISC2', blocks: [9], fill: 0x44), otherGame]);
+
+        final card = Ps1MemoryCard.parse((await syncFiles()).single.readAsBytesSync());
+
+        expect(card.saves.map((s) => s.name), [colinSetting.name, 'BESLES-12605DISC2']);
+      });
+
+      test('local backups still get the whole card', () async {
+        await writeShared([otherGame, colinSetting]);
+        expect(await saveFiles(), ['shared_card_1.mcd']);
+      });
+    });
+
+    group('pull', () {
+      test('replaces this game\'s saves on the card and leaves the other games\' bytes alone', () async {
+        final shared = await writeShared([otherGame, colinSetting]);
+        final before = shared.readAsBytesSync();
+        final incoming = buildPs1Card([(name: 'BESLES-02605NEW', blocks: [1, 2], fill: 0x66)]);
+
+        final ok = await env.strategy.restoreSave(game, romPath(), incoming, 'SLES-02605_1.mcd');
+
+        expect(ok, isTrue);
+        final after = shared.readAsBytesSync();
+        final card = Ps1MemoryCard.parse(after);
+        expect(card.saves.map((s) => s.name).toSet(), {otherGame.name, 'BESLES-02605NEW'});
+        for (final block in otherGame.blocks) {
+          expect(blockData(after, block), blockData(before, block));
+        }
+        expect(cardsOnDisk(), ['shared_card_1.mcd'], reason: 'no per-game card is written');
+        expect(File('${shared.path}.bak').existsSync(), isTrue, reason: 'the old card is backed up first');
+      });
+
+      test('creates the shared card when there is none yet', () async {
+        final incoming = buildPs1Card([colinSetting]);
+
+        await env.strategy.restoreSave(game, romPath(), incoming, 'SLES-02605_1.mcd');
+
+        final card = Ps1MemoryCard.parse(File(p.join(env.memcardsDir, 'shared_card_1.mcd')).readAsBytesSync());
+        expect(card.saves.map((s) => s.name), [colinSetting.name]);
+      });
+
+      test('an incoming card with none of this game\'s saves changes nothing', () async {
+        final shared = await writeShared([otherGame, colinSetting]);
+        final before = shared.readAsBytesSync();
+
+        await env.strategy.restoreSave(game, romPath(), buildPs1Card([otherGame]), 'SLES-02605_1.mcd');
+
+        expect(shared.readAsBytesSync(), before);
+      });
+
+      test('a full card: nothing is written, and the user is told why', () async {
+        final shared = await writeShared([
+          (name: 'BASLUS-00594BIG', blocks: List.generate(14, (i) => i + 1), fill: 3),
+        ]);
+        final before = shared.readAsBytesSync();
+        final incoming = buildPs1Card([(name: 'BESLES-02605NEW', blocks: [1, 2], fill: 0x66)]);
+
+        await expectLater(
+          env.strategy.restoreSave(game, romPath(), incoming, 'SLES-02605_1.mcd'),
+          throwsA(isA<SaveSyncNotPossibleException>()
+              .having((e) => e.message, 'message', allOf(contains('2 blocks'), contains('1 free')))),
+        );
+        expect(shared.readAsBytesSync(), before);
+      });
+
+      test('a damaged shared card or incoming card: nothing is written, and the user is told why', () async {
+        final shared = File(p.join(env.memcardsDir, 'shared_card_1.mcd'))
+          ..parent.createSync(recursive: true)
+          ..writeAsBytesSync(List.filled(128 * 1024, 0));
+        await expectLater(
+          env.strategy.restoreSave(game, romPath(), buildPs1Card([colinSetting]), 'SLES-02605_1.mcd'),
+          throwsA(isA<SaveSyncNotPossibleException>()),
+        );
+        expect(shared.readAsBytesSync(), everyElement(0));
+
+        await writeShared([otherGame]);
+        await expectLater(
+          env.strategy.restoreSave(game, romPath(), Uint8List(500), 'SLES-02605_1.mcd'),
+          throwsA(isA<SaveSyncNotPossibleException>()),
+        );
+      });
+
+      test('pushed from one PC and pulled on another, the saves arrive unchanged', () async {
+        await writeShared([otherGame, colinSetting, colinGame]);
+        final uploaded = (await syncFiles()).single.readAsBytesSync();
+
+        // The other PC: a shared card with a different game and an older save.
+        await writeShared([(name: 'BASCUS-94163FF7', blocks: [4], fill: 0x77), (name: 'BESLES-02605OLD', blocks: [8], fill: 1)]);
+        await env.strategy.restoreSave(game, romPath(), uploaded, 'SLES-02605_1.mcd');
+
+        final pushedBack = (await syncFiles()).single.readAsBytesSync();
+        expect(pushedBack, uploaded, reason: 'same saves, same bytes: no needless re-upload');
+      });
+    });
+
+    test('a per-game PC restoring an old upload of a whole shared card keeps only this game\'s saves', () async {
+      await cardTypes('Card1Type = PerGame');
+      final oldUpload = buildPs1Card([otherGame, colinSetting]);
+
+      await env.strategy.restoreSave(game, romPath(), oldUpload, 'shared_card_1.mcd');
+
+      final card = Ps1MemoryCard.parse(File(p.join(env.memcardsDir, 'SLES-02605_1.mcd')).readAsBytesSync());
+      expect(card.saves.map((s) => s.name), [colinSetting.name]);
+    });
+
+    test('the pull must finish before launch only when a shared card may be patched', () async {
+      expect(await env.strategy.pullMustFinishBeforeLaunch(game, romPath()), isTrue);
+      await cardTypes('Card1Type = PerGame');
+      expect(await env.strategy.pullMustFinishBeforeLaunch(game, romPath()), isFalse);
     });
   });
 }

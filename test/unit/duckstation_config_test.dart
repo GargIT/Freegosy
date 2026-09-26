@@ -136,6 +136,13 @@ SCUS-94163:
             'Final Fantasy VII (USA) (Disc 1)');
       });
 
+      test('discSetSerials: every disc of a multi-disc game, else just the game', () async {
+        expect(await DuckstationGameDb.discSetSerials(dir.path, 'scus-94164'),
+            ['SCUS-94163', 'SCUS-94164', 'SCUS-94165']);
+        expect(await DuckstationGameDb.discSetSerials(dir.path, 'SLES-02605'), ['SLES-02605']);
+        expect(await DuckstationGameDb.discSetSerials(p.join(dir.path, 'nope'), 'SLES-02605'), ['SLES-02605']);
+      });
+
       test('a single-disc game uses its own entry', () async {
         expect(await DuckstationGameDb.saveTitle(dir.path, 'SLES-02605', usePlaylistTitle: true),
             'Colin McRae Rally 2.0 (Europe) (En,Fr,De,Es,It)');

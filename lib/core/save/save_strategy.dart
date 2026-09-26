@@ -38,20 +38,29 @@ abstract class SaveStrategy {
   bool get shouldZip => true;
 
   /// Why [game]'s saves can't be synced with the emulator set up as it is
-  /// (e.g. one memory card shared by every game), or null when they can.
+  /// (e.g. no memory card at all), or null when they can.
   /// Checked before every push and pull; a reason stops both and reaches the
   /// user. Local backups are not affected. Must not throw: a failure to tell
   /// means null.
   Future<String?> saveSyncBlockedReason(Game game, String romPath) async => null;
 
+  /// Whether the pre-launch pull must finish before the emulator starts,
+  /// e.g. because restoring changes a file other games' saves share. The
+  /// pull otherwise runs alongside the launch.
+  Future<bool> pullMustFinishBeforeLaunch(Game game, String romPath) async => false;
+
   /// Returns the local save directory for [game] given its [romPath].
   Future<String?> getSaveDir(Game game, String romPath);
 
-  /// Returns all save files associated with [game].
-  /// If [sessionStart] is provided, only files modified after that time are returned.
+  /// Returns all save files associated with [game]: what local backups keep
+  /// (BackupService). If [sessionStart] is provided, only files modified
+  /// after that time are returned.
   Future<List<io.File>> getSaveFiles(Game game, String romPath, {DateTime? sessionStart, String syncMode = 'both'});
 
-  /// Returns all save files associated with [game], optionally paired with screenshots.
+  /// Returns all save files associated with [game], optionally paired with screenshots:
+  /// what save sync uploads and compares (SaveSyncService). By default the
+  /// same files as [getSaveFiles]; a strategy may upload something narrower
+  /// than it backs up (e.g. one game's saves out of a card shared by all).
   /// If [sessionStart] is provided, only files modified after that time are returned.
   Future<Map<io.File, io.File?>> getSaveFilesWithScreenshots(Game game, String romPath, {DateTime? sessionStart, String syncMode = 'both'}) async {
     final files = await getSaveFiles(game, romPath, sessionStart: sessionStart, syncMode: syncMode);

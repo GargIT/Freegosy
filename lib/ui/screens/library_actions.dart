@@ -513,12 +513,23 @@ mixin LibraryActionsMixin<T extends ConsumerStatefulWidget> on ConsumerState<T> 
       // reintroducing files inside the emulator-managed folder.
       final backupService = ref.read(backupServiceProvider);
       final resolvedEmulatorId = strategy.emulatorId;
-      unawaited(
-        backupService
-            .createImmediate(game, romPath, syncService, emulatorId: resolvedEmulatorId)
-            .then((_) => syncService.pullSave(game, romPath, coreOverride: overrideCoreId, emulatorId: resolvedEmulatorId))
-            .catchError((_) => false),
-      );
+      final pull = backupService
+          .createImmediate(game, romPath, syncService, emulatorId: resolvedEmulatorId)
+          .then((_) => syncService.pullSave(game, romPath, coreOverride: overrideCoreId, emulatorId: resolvedEmulatorId))
+          .catchError((_) => false);
+      // A pull that rewrites a file other games' saves share (e.g. a
+      // DuckStation card shared by all games) must land before the emulator
+      // opens it; bounded so an unreachable RomM can't hold the launch.
+      final mustFinish = await syncService
+              .getStrategyForGame(game, emulatorId: resolvedEmulatorId)
+              ?.pullMustFinishBeforeLaunch(game, romPath) ??
+          false;
+      if (mustFinish) {
+        debugPrint('[SaveSync] Waiting for the pull before launch (shared save file)');
+        await pull.timeout(const Duration(seconds: 20), onTimeout: () => false);
+      } else {
+        unawaited(pull);
+      }
     }
 
     // Platform-specific checks (e.g. 3DS keys)
