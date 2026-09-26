@@ -137,7 +137,8 @@ void main() {
     }
 
     test('getSaveFiles returns the memory card but no save states', () async {
-      await File(p.join(env.memcardsDir, 'shared_card_1.mcd')).writeAsBytes(List.filled(150, 1));
+      await env.writeSettings('[MemoryCards]\nCard1Type = PerGame\n');
+      await env.writeCard('SLES-03508_1.mcd');
       await Directory(env.statesDir).create(recursive: true);
       await File(p.join(env.statesDir, stateName)).writeAsBytes(List.filled(150, 2));
 
@@ -147,26 +148,27 @@ void main() {
           id: 'g1', name: 'Future Racer', fsName: 'SLES-03508.chd', platformSlug: 'psx', fileSize: 0);
       final files = await env.strategy.getSaveFiles(stemGame, romPath());
 
-      expect(files.map((f) => p.basename(f.path)), ['shared_card_1.mcd']);
+      expect(files.map((f) => p.basename(f.path)), ['SLES-03508_1.mcd']);
     });
 
     test('restoreSave ignores state entries inside a saves bundle', () async {
+      await env.writeSettings('[MemoryCards]\nCard1Type = PerGame\n');
       final bundle = zip({
-        'shared_card_1.mcd': List.filled(150, 5),
+        'SLES-03508_1.mcd': List.filled(150, 5),
         stateName: List.filled(150, 6),
       });
 
-      final ok = await env.strategy.restoreSave(game, env.exeDir, bundle, 'Future Racer.zip');
+      final ok = await env.strategy.restoreSave(game, romPath(), bundle, 'Future Racer.zip');
 
       expect(ok, isTrue);
-      expect(await File(p.join(env.memcardsDir, 'shared_card_1.mcd')).exists(), isTrue);
+      expect(await File(p.join(env.memcardsDir, 'SLES-03508_1.mcd')).exists(), isTrue);
       expect(await File(p.join(env.statesDir, stateName)).exists(), isFalse,
           reason: 'states are synced by StateSyncService, never restored from a saves bundle');
     });
 
     test('restoreSave ignores a single-file state upload', () async {
       final ok = await env.strategy
-          .restoreSave(game, env.exeDir, Uint8List.fromList(List.filled(150, 3)), stateName);
+          .restoreSave(game, romPath(), Uint8List.fromList(List.filled(150, 3)), stateName);
 
       expect(ok, isTrue);
       expect(await File(p.join(env.statesDir, stateName)).exists(), isFalse);

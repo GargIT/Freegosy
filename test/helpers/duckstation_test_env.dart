@@ -33,6 +33,32 @@ class DuckstationTestEnv {
   String get statesDir => p.join(exeDir, 'savestates');
   String get memcardsDir => p.join(exeDir, 'memcards');
 
+  /// Writes DuckStation's `settings.ini` (e.g. its `[MemoryCards]` section).
+  Future<void> writeSettings(String ini) => File(p.join(exeDir, 'settings.ini')).writeAsString(ini);
+
+  /// Writes `gamesettings/<serial>.ini`, DuckStation's per-game overrides.
+  Future<void> writeGameSettings(String serial, String ini) async {
+    final file = File(p.join(exeDir, 'gamesettings', '$serial.ini'));
+    await file.parent.create(recursive: true);
+    await file.writeAsString(ini);
+  }
+
+  /// Writes DuckStation's `resources/gamedb.yaml` (and `discsets.yaml`).
+  Future<void> writeGameDb(String gamedb, {String discsets = ''}) async {
+    final dir = Directory(p.join(exeDir, 'resources'));
+    await dir.create(recursive: true);
+    await File(p.join(dir.path, 'gamedb.yaml')).writeAsString(gamedb);
+    await File(p.join(dir.path, 'discsets.yaml')).writeAsString(discsets);
+  }
+
+  /// Writes a 128 KB memory card named [name] in the memory card folder.
+  Future<File> writeCard(String name, {int fill = 1}) async {
+    final file = File(p.join(memcardsDir, name));
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(List.filled(128 * 1024, fill));
+    return file;
+  }
+
   static Future<DuckstationTestEnv> create(Directory base, {ZstdDecompressor? zstd}) async {
     final exeDir = p.join(base.path, 'duckstation');
     await Directory(p.join(exeDir, 'memcards')).create(recursive: true);
