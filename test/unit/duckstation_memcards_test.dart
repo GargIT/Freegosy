@@ -38,6 +38,10 @@ void main() {
   tearDown(() => base.delete(recursive: true));
 
   String romPath() => p.join(base.path, 'Colin McRae Rally 2.0 (Europe) (SLES-02605).chd');
+
+  /// The name a port-1 card is uploaded under: the ROM name as a RetroArch
+  /// `.srm` (the same card format; see docs/save-interop.md).
+  const srmName = 'Colin McRae Rally 2.0 (Europe) (SLES-02605).srm';
   Future<void> cardTypes(String types) => env.writeSettings('[MemoryCards]\n$types\n');
   Future<List<String>> saveFiles() async =>
       (await env.strategy.getSaveFiles(game, romPath())).map((f) => p.basename(f.path)).toList();
@@ -111,6 +115,46 @@ void main() {
       await cardTypes('Card1Type = Shared');
       await env.writeGameSettings('SLES-02605', '[MemoryCards]\nCard1Type = PerGame\n');
       expect(await saveFiles(), ['SLES-02605_1.mcd']);
+    });
+
+    group('as uploaded', () {
+      Future<List<File>> uploads() async =>
+          (await env.strategy.getSaveFilesWithScreenshots(game, romPath())).keys.toList();
+
+      test('the port-1 card goes up as <ROM name>.srm, the same bytes, outside DuckStation\'s folder',
+          () async {
+        await cardTypes('Card1Type = PerGame');
+
+        final file = (await uploads()).single;
+
+        expect(p.basename(file.path), srmName);
+        expect(p.isWithin(env.memcardsDir, file.path), isFalse);
+        expect(file.readAsBytesSync(), File(p.join(env.memcardsDir, 'SLES-02605_1.mcd')).readAsBytesSync());
+      });
+
+      test('a second per-game port keeps its DuckStation name next to the .srm', () async {
+        await cardTypes('Card1Type = PerGame\nCard2Type = PerGame');
+        await env.writeCard('SLES-02605_2.mcd');
+
+        expect((await uploads()).map((f) => p.basename(f.path)), [srmName, 'SLES-02605_2.mcd']);
+      });
+
+      test('local backups keep DuckStation\'s own names', () async {
+        await cardTypes('Card1Type = PerGame');
+        expect(await saveFiles(), ['SLES-02605_1.mcd']);
+      });
+
+      test('uploaded from one PC and restored on another, it lands under that PC\'s name', () async {
+        await cardTypes('Card1Type = PerGame');
+        final file = (await uploads()).single;
+        final bytes = file.readAsBytesSync();
+        await cardTypes('Card1Type = PerGameFileTitle');
+
+        await env.strategy.restoreSave(game, romPath(), bytes, p.basename(file.path));
+
+        expect(File(p.join(env.memcardsDir, 'Colin McRae Rally 2.0 (Europe) (SLES-02605)_1.mcd')).readAsBytesSync(),
+            bytes);
+      });
     });
 
     test('the memory card folder follows the Directory setting', () async {
@@ -257,12 +301,12 @@ void main() {
             .toList();
 
     group('push', () {
-      test('uploads a card holding only this game\'s saves, named by serial and port', () async {
+      test('uploads a card holding only this game\'s saves, named like a RetroArch card', () async {
         final shared = await writeShared([otherGame, colinSetting, colinGame]);
 
         final file = (await syncFiles()).single;
 
-        expect(p.basename(file.path), 'SLES-02605_1.mcd');
+        expect(p.basename(file.path), srmName);
         expect(p.isWithin(env.memcardsDir, file.path), isFalse, reason: 'a temporary copy, not a card of DuckStation\'s');
         final card = Ps1MemoryCard.parse(file.readAsBytesSync());
         expect(card.saves.map((s) => s.name), [colinSetting.name, colinGame.name]);
@@ -273,7 +317,7 @@ void main() {
         await cardTypes('Card1Type = Shared\nCard1Path = my_card.mcd');
         await writeShared([colinSetting], name: 'my_card.mcd');
 
-        expect((await syncFiles()).map((f) => p.basename(f.path)), ['SLES-02605_1.mcd']);
+        expect((await syncFiles()).map((f) => p.basename(f.path)), [srmName]);
       });
 
       test('nothing when the game has no saves on the card, or the card is missing or damaged', () async {
@@ -387,11 +431,12 @@ void main() {
 
       test('pushed from one PC and pulled on another, the saves arrive unchanged', () async {
         await writeShared([otherGame, colinSetting, colinGame]);
-        final uploaded = (await syncFiles()).single.readAsBytesSync();
+        final uploadedFile = (await syncFiles()).single;
+        final uploaded = uploadedFile.readAsBytesSync();
 
         // The other PC: a shared card with a different game and an older save.
         await writeShared([(name: 'BASCUS-94163FF7', blocks: [4], fill: 0x77), (name: 'BESLES-02605OLD', blocks: [8], fill: 1)]);
-        await env.strategy.restoreSave(game, romPath(), uploaded, 'SLES-02605_1.mcd');
+        await env.strategy.restoreSave(game, romPath(), uploaded, p.basename(uploadedFile.path));
 
         final pushedBack = (await syncFiles()).single.readAsBytesSync();
         expect(pushedBack, uploaded, reason: 'same saves, same bytes: no needless re-upload');
@@ -406,6 +451,42 @@ void main() {
 
       final card = Ps1MemoryCard.parse(File(p.join(env.memcardsDir, 'SLES-02605_1.mcd')).readAsBytesSync());
       expect(card.saves.map((s) => s.name), [colinSetting.name]);
+    });
+
+    group('a card uploaded by Argosy (RetroArch keeps it as <ROM name>.srm)', () {
+      const argosyName = 'Colin McRae Rally 2.0 (Europe) (En,Fr,De,Es,It).srm';
+
+      test('becomes this game\'s own card on a per-game PC', () async {
+        await cardTypes('Card1Type = PerGame');
+
+        final ok = await env.strategy.restoreSave(game, romPath(), buildPs1Card([colinSetting]), argosyName);
+
+        expect(ok, isTrue);
+        expect(cardsOnDisk(), ['SLES-02605_1.mcd']);
+        final card = Ps1MemoryCard.parse(File(p.join(env.memcardsDir, 'SLES-02605_1.mcd')).readAsBytesSync());
+        expect(card.saves.map((s) => s.name), [colinSetting.name]);
+      });
+
+      test('is merged into a shared card like any other', () async {
+        final shared = await writeShared([otherGame]);
+
+        await env.strategy.restoreSave(game, romPath(), buildPs1Card([colinSetting]), argosyName);
+
+        expect(Ps1MemoryCard.parse(shared.readAsBytesSync()).saves.map((s) => s.name).toSet(),
+            {otherGame.name, colinSetting.name});
+      });
+
+      test('an .srm that is not a PS1 memory card is ignored', () async {
+        await cardTypes('Card1Type = PerGame');
+
+        final wrongSize = await env.strategy
+            .restoreSave(game, romPath(), Uint8List.fromList(List.filled(8192, 1)), argosyName);
+        final noHeader = await env.strategy
+            .restoreSave(game, romPath(), Uint8List(128 * 1024), argosyName);
+
+        expect([wrongSize, noHeader], [true, true]);
+        expect(Directory(env.memcardsDir).existsSync() ? cardsOnDisk() : <String>[], isEmpty);
+      });
     });
 
     test('the pull must finish before launch only when a shared card may be patched', () async {

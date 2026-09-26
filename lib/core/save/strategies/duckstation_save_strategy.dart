@@ -305,6 +305,18 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
     return port != null && DuckstationMemcardConfig.ports.contains(port) ? port : 1;
   }
 
+  /// A memory card upload: DuckStation's `.mcd`, or the `<ROM name>.srm`
+  /// RetroArch keeps a PS1 card in (what Argosy uploads) when it really is a
+  /// raw 128 KB card. An `.srm` has no port in its name: it is port 1.
+  static bool _isCardUpload(String fileName, Uint8List bytes) {
+    final lower = fileName.toLowerCase();
+    if (lower.endsWith('.mcd')) return true;
+    return lower.endsWith('.srm') &&
+        bytes.length == Ps1MemoryCard.size &&
+        bytes[0] == 0x4D &&
+        bytes[1] == 0x43;
+  }
+
   static bool _isSharedCardName(String fileName) {
     final base = p.basename(fileName).toLowerCase();
     return base.startsWith('shared_card_') || RegExp(r'^mcd\d+\.mcd$').hasMatch(base);
@@ -367,7 +379,7 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
       {DateTime? sessionStart, String syncMode = 'both'}) async {
     final setup = await _cardSetup(game, romPath);
     final changed = _changedSince(sessionStart);
-    final result = await _perGameCards(setup, game, romPath, changed);
+    final result = [for (final (_, card) in await _perGameCards(setup, game, romPath, changed)) card];
     for (final port in setup.config.portsOfType((t) => t == DuckstationCardType.shared)) {
       final card = _sharedCard(setup, port);
       if (await card.exists() && changed(card)) result.add(card);
@@ -378,13 +390,21 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
   }
 
   /// What sync uploads: this game's own cards, and for a shared card a card
-  /// holding only this game's saves.
+  /// holding only this game's saves. The port-1 card goes up as
+  /// `<ROM name>.srm`: the same bytes under the name RetroArch's PS1 cores,
+  /// Argosy and RomM's player use for a PS1 card (docs/save-interop.md);
+  /// other ports keep DuckStation's `<name>_N.mcd`. Restoring takes both.
   @override
   Future<Map<File, File?>> getSaveFilesWithScreenshots(Game game, String romPath,
       {DateTime? sessionStart, String syncMode = 'both'}) async {
     final setup = await _cardSetup(game, romPath);
     final changed = _changedSince(sessionStart);
-    final result = await _perGameCards(setup, game, romPath, changed);
+    final result = <File>[];
+    for (final (port, card) in await _perGameCards(setup, game, romPath, changed)) {
+      result.add(port == 1
+          ? await _writeUpload(game, _srmName(game), await card.readAsBytes())
+          : card);
+    }
     final sharedPorts = setup.config.portsOfType((t) => t == DuckstationCardType.shared).toList();
     final belongs = sharedPorts.isEmpty ? null : await _savesOfGame(setup);
     for (final port in sharedPorts) {
@@ -394,36 +414,50 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
       } else if (!await shared.exists() || !changed(shared)) {
         debugPrint('[DuckStation]   port $port (Shared): ${shared.path} not written this session');
       } else {
-        final extracted = await _extractToTemp(game, setup.serial!, port, shared, belongs);
+        final name = port == 1 ? _srmName(game) : '${setup.serial}_$port.mcd';
+        final extracted = await _extractToTemp(game, name, port, shared, belongs);
         if (extracted != null) result.add(extracted);
       }
     }
     return {for (final f in result) f: null};
   }
 
-  Future<List<File>> _perGameCards(
+  /// `<ROM name>.srm`, the name a PS1 card has in RetroArch.
+  String _srmName(Game game) => '${duckstationSafeFileName(getRomStem(game))}.srm';
+
+  /// Writes [bytes] as [name] in this game's temporary upload folder.
+  static Future<File> _writeUpload(Game game, String name, List<int> bytes) async {
+    final dir = Directory(p.join(Directory.systemTemp.path, 'freegosy_duckstation',
+        game.id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')));
+    await dir.create(recursive: true);
+    final out = File(p.join(dir.path, name));
+    await out.writeAsBytes(bytes);
+    return out;
+  }
+
+  /// This game's own cards on disk, with their ports.
+  Future<List<(int, File)>> _perGameCards(
       _CardSetup setup, Game game, String romPath, bool Function(File) changed) async {
     final config = setup.config;
     debugPrint('[DuckStation] memory cards: ${setup.memcardsDir}  serial=${setup.serial}  '
         'types=${DuckstationMemcardConfig.ports.map((port) => config.typeOf(port).iniValue).join(",")}');
-    final result = <File>[];
+    final result = <(int, File)>[];
     for (final port in config.portsOfType((t) => t.isPerGame)) {
       final card = await _localCard(setup, game, romPath, port);
       if (card == null) {
         debugPrint('[DuckStation]   port $port (${config.typeOf(port).iniValue}): no card on disk');
       } else if (changed(card)) {
         debugPrint('[DuckStation]   port $port (${config.typeOf(port).iniValue}): ${card.path}');
-        result.add(card);
+        result.add((port, card));
       }
     }
     return result;
   }
 
   /// This game's saves from [shared], as a card of their own in a temporary
-  /// file named `<serial>_<port>.mcd`; null when there are none or the card
-  /// can't be read.
+  /// file called [name]; null when there are none or the card can't be read.
   Future<File?> _extractToTemp(
-      Game game, String serial, int port, File shared, bool Function(String) belongs) async {
+      Game game, String name, int port, File shared, bool Function(String) belongs) async {
     try {
       final card = Ps1MemoryCard.parse(await shared.readAsBytes());
       final mine = card.saves.where((s) => belongs(s.name)).map((s) => s.name).toList();
@@ -431,11 +465,7 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
         debugPrint('[DuckStation]   port $port (Shared): no saves of this game on ${shared.path}');
         return null;
       }
-      final dir = Directory(p.join(Directory.systemTemp.path, 'freegosy_duckstation',
-          game.id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')));
-      await dir.create(recursive: true);
-      final out = File(p.join(dir.path, '${serial}_$port.mcd'));
-      await out.writeAsBytes(card.extract(belongs));
+      final out = await _writeUpload(game, name, card.extract(belongs));
       debugPrint('[DuckStation]   port $port (Shared): ${mine.length} save(s) of this game → ${out.path}: $mine');
       return out;
     } on FormatException catch (e) {
@@ -456,13 +486,14 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
           // Only memory cards are restored from a saves bundle. Older
           // Freegosy versions bundled `savestates/` into it; states now sync
           // separately through StateSyncService, so never write them here.
-          if (!entry.name.toLowerCase().endsWith('.mcd')) {
+          final content = Uint8List.fromList(entry.content as List<int>);
+          if (!_isCardUpload(entry.name, content)) {
             debugPrint('[DuckStation]   skipping non-memcard entry: ${entry.name}');
             continue;
           }
-          cards.add((p.basename(entry.name), Uint8List.fromList(entry.content as List<int>)));
+          cards.add((p.basename(entry.name), content));
         }
-      } else if (filename.toLowerCase().endsWith('.mcd')) {
+      } else if (_isCardUpload(filename, data)) {
         cards.add((p.basename(filename), data));
       } else {
         debugPrint('[DuckStation]   ignoring non-memcard save upload: $filename');
