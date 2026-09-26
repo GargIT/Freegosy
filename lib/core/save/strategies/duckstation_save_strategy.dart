@@ -319,10 +319,7 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
   static bool _isCardUpload(String fileName, Uint8List bytes) {
     final lower = fileName.toLowerCase();
     if (lower.endsWith('.mcd')) return true;
-    return lower.endsWith('.srm') &&
-        bytes.length == Ps1MemoryCard.size &&
-        bytes[0] == 0x4D &&
-        bytes[1] == 0x43;
+    return lower.endsWith('.srm') && Ps1MemoryCard.looksLikeCard(bytes);
   }
 
   static bool _isSharedCardName(String fileName) {
