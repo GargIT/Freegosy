@@ -98,7 +98,7 @@ freegosy.exe --headless                 (same as interactive)
 | Emulator | Status | Notes |
 |---|---|---|
 | **RetroArch** | 🟢 Full | 197 cores supported. Per-platform core selection, per-game core override, searchable core browser. Tested: GBA (mGBA), SNES (Snes9x), NES (FCEUmm), N64 (mupen64Plus), NDS (melonDS), Dreamcast (Flycast), Mega Drive (Genesis Plus GX), PSP (PPSSPP), PS1 (PCSX ReARMed), Saturn (Mednafen), Arcade (FBNeo), DOS (DOSBox Pure). |
-| **DuckStation** | 🟢 Full | PS1 `.mcd` memory card saves fully synced. |
+| **DuckStation** | 🟢 Full | PS1 per-game `.mcd` memory cards synced for all three "Separate Card Per Game" types (serial, title, file title), read from DuckStation's own settings; a card is restored under the name each PC's DuckStation uses. A card shared by all games isn't synced (it would roll back other games); Freegosy says so. Save states sync too (opt-in). |
 | **PPSSPP** | 🟢 Full | PSP save data directory fully synced. |
 | **Ryujinx** | 🟢 Full | Switch save directory fully synced (configurable Title ID mapping). |
 | **Eden** | 🟢 Full | Switch save directory fully synced (configurable Title ID + profile). |
