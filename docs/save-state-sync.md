@@ -150,10 +150,15 @@ warn.
 DuckStation states don't record the build that made them, only DuckStation's
 state format number, so the list shows `DuckStation state format 86` and never
 warns or prompts. A DuckStation too old for a state is expected to refuse it
-with its own error rather than crash (not yet checked by hand). DuckStation
-states have no thumbnail in the list either: its screenshot is stored
-zstd-compressed, which Freegosy can't decode, so DuckStation uploads carry no
-screenshot.
+with its own error rather than crash (not yet checked by hand).
+
+**Thumbnails.** PCSX2 embeds a PNG in the state. DuckStation stores raw RGBA
+pixels, zstd-compressed by default, which Freegosy decompresses (with the
+`zstandard` plugin, zstd built from source during the app build) and turns
+into a PNG. That PNG is the list's thumbnail and is uploaded with the state.
+A screenshot stored any other way (if DuckStation's deflate or XZ **Save
+State Compression** settings store it so) gets no thumbnail; uncompressed
+works.
 
 ## Conflicts and safety
 
@@ -291,7 +296,9 @@ Safety rules that always apply:
   implement `installedVersion()` so mismatched-version warnings work. On the
   `StateSyncCapable` save strategy, `slotOf`, `describeState` and
   `stateScreenshot` are all optional (each has a safe default) but describe
-  the slot label, the emulator version and a thumbnail respectively. When a
+  the slot label, the emulator version and a thumbnail respectively. An
+  emulator that stores raw RGBA pixels can hand them to `encodeRgbaPng`
+  (`lib/core/save/rgba_png.dart`) for the PNG the list and RomM expect. When a
   state records no emulator version, `describeState` can still return its
   `formatId`, which the slot list shows instead (DuckStation does this).
   `GameLaunchService.launch(..., loadStatePath: ...)` passes `stateLoadArgs`
@@ -335,9 +342,12 @@ Safety rules that always apply:
   timeout plus one 30 s download stall); and resuming a multi-disc or cue/bin
   game on real hardware.
 - DuckStation is covered by unit tests (header, naming, slots, launch
-  arguments) against a real state's layout, but not yet verified by hand: a
-  two-machine round trip, Resume, a multi-disc `.m3u` game, and what
-  DuckStation does with a state from a newer build.
+  arguments, screenshot) against a real state's layout. Checked by hand: the
+  screenshot of real format 86 and 87 states decompresses to the declared
+  256×192 RGBA and renders correctly in a Windows release build. Not yet
+  verified by hand: a two-machine round trip, Resume, the thumbnail in the
+  list and on RomM, a multi-disc `.m3u` game, what DuckStation does with a
+  state from a newer build, and the zstd plugin on Linux and macOS.
 
 ## Possible follow-ups
 
@@ -345,5 +355,4 @@ Safety rules that always apply:
   fresh; a flag to resume the newest (or a named) state would bring Resume
   Game to scripted/headless launches too.
 - Other emulators (RetroArch, PPSSPP, ares, Dolphin).
-- DuckStation thumbnails, if a zstd decoder becomes available.
 - Deleting states on RomM and propagating deletes.
