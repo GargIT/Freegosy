@@ -13,6 +13,7 @@ import '../save/backup_entry.dart';
 import '../save/backup_repository.dart';
 import '../save/backup_service.dart';
 import '../save/save_sync_service.dart';
+import '../save/save_strategy.dart';
 import '../save/state_sync_service.dart';
 import 'emulator_strategy.dart';
 import 'strategies/retroarch_strategy.dart';
@@ -66,8 +67,13 @@ class LaunchResult {
   /// and were left untouched pending the user's choice.
   final int stateConflictCount;
 
+  /// Why the saves could not be synced with the emulator set up as it is
+  /// (see [SaveSyncNotPossibleException]), or null.
+  final String? saveSyncBlocked;
+
   const LaunchResult({
     required this.syncOk,
+    this.saveSyncBlocked,
     this.backupZipPath,
     this.playSessionRecorded = false,
     this.stateConflictCount = 0,
@@ -325,14 +331,20 @@ class GameLaunchService {
     final activityTracker = await session.activityTrackerFuture;
     if (activityTracker != null) await activityTracker.stop();
 
-    final syncOk = await saveSyncService.pushSaves(
-      game,
-      romPath,
-      sessionStart: session.sessionStart,
-      syncMode: syncMode,
-      coreOverride: overrideCoreId,
-      emulatorId: session.emulatorId,
-    );
+    var syncOk = false;
+    String? saveSyncBlocked;
+    try {
+      syncOk = await saveSyncService.pushSaves(
+        game,
+        romPath,
+        sessionStart: session.sessionStart,
+        syncMode: syncMode,
+        coreOverride: overrideCoreId,
+        emulatorId: session.emulatorId,
+      );
+    } on SaveSyncNotPossibleException catch (e) {
+      saveSyncBlocked = e.message;
+    }
 
     // Save states sync separately from game saves; see [pushStatesAfterExit].
     final stateConflictCount = await pushStatesAfterExit(session, game, romPath);
@@ -374,6 +386,7 @@ class GameLaunchService {
 
     return LaunchResult(
       syncOk: syncOk,
+      saveSyncBlocked: saveSyncBlocked,
       backupZipPath: backupZipPath,
       playSessionRecorded: playSessionRecorded,
       stateConflictCount: stateConflictCount,

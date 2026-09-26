@@ -11,6 +11,7 @@ import '../../storage/directory_service.dart';
 import '../save_state_info.dart';
 import '../save_strategy.dart';
 import '../state_sync_capable.dart';
+import 'duckstation_config.dart';
 import 'duckstation_state_file.dart';
 
 /// Save strategy for DuckStation (PlayStation 1).
@@ -157,106 +158,209 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
     return resolvedPath;
   }
 
-  @override
-  Future<String?> getSaveDir(Game game, String romPath) async {
+  // ─── Memory cards ─────────────────────────────────────────────────────────
+  //
+  // DuckStation names a game's card by its "Memory Card Type" setting
+  // (`[MemoryCards] CardNType`, overridable per game in
+  // `gamesettings/<SERIAL>.ini`): `<serial>_N.mcd`, `<title>_N.mcd` (the
+  // `saveName` in its own gamedb.yaml) or `<ROM file name>_N.mcd`, N being
+  // the port. Freegosy reads that setting, uploads exactly those cards, and
+  // restores a card under the name *this* PC's DuckStation will open, so PCs
+  // set to different types still share the save. One card shared by every
+  // game can't be synced per game (restoring it would roll back all other
+  // games), so that setup blocks sync; see [saveSyncBlockedReason].
+
+  static const _sharedCardMessage =
+      'DuckStation uses one memory card shared by all games, so its saves '
+      "can't be synced per game. To sync them, choose a \"Separate Card Per "
+      "Game\" memory card type in DuckStation's settings.";
+  static const _noCardMessage =
+      'DuckStation has no memory card that keeps saves ("No Memory Card" or '
+      '"Non-Persistent"), so there is nothing to sync.';
+
+  Future<_CardSetup> _cardSetup(Game game, String romPath, {bool needSerial = true}) async {
     final baseDir = await _getBaseDir(platformSlug: game.platformSlug);
-    return p.join(baseDir, 'memcards');
+    final serial = needSerial ? await _extractSerial(romPath) : null;
+    final globalIni = await _readIfExists(p.join(baseDir, 'settings.ini'));
+    final gameIni =
+        serial == null ? null : await _readIfExists(p.join(baseDir, 'gamesettings', '$serial.ini'));
+    final config = DuckstationMemcardConfig.fromIni(globalIni, gameIni);
+    final directory = config.directory;
+    final memcardsDir = directory == null
+        ? p.join(baseDir, 'memcards')
+        : (p.isAbsolute(directory) ? directory : p.join(baseDir, directory));
+    return _CardSetup(memcardsDir: memcardsDir, config: config, serial: serial);
   }
+
+  static Future<String?> _readIfExists(String path) async {
+    try {
+      final file = File(path);
+      return await file.exists() ? await file.readAsString() : null;
+    } catch (e) {
+      debugPrint('[DuckStation] cannot read $path: $e');
+      return null;
+    }
+  }
+
+  /// DuckStation's installed `resources` folder (holding gamedb.yaml), or
+  /// null when it can't be found (e.g. inside an AppImage).
+  Future<String?> _resourcesDir() async {
+    final exePath = await _directoryService.findEmulatorExecutable('duckstation', _getEmuExe());
+    if (exePath == null) return null;
+    final exeDir = File(exePath).parent;
+    for (final dir in [
+      p.join(exeDir.path, 'resources'),
+      if (_platform.isMacOS) p.join(exeDir.parent.path, 'Resources'),
+    ]) {
+      if (await File(p.join(dir, 'gamedb.yaml')).exists()) return dir;
+    }
+    return null;
+  }
+
+  /// The exact name (without `_N.mcd`) DuckStation gives [game]'s card of
+  /// [type], or null when it can't be known: the serial couldn't be read,
+  /// or (by title) the game database doesn't know the game.
+  Future<String?> _cardName(_CardSetup setup, DuckstationCardType type, Game game, String romPath) async {
+    switch (type) {
+      case DuckstationCardType.perGameSerial:
+        return setup.serial;
+      case DuckstationCardType.perGameFileTitle:
+        final title = await FileSystemEntity.isDirectory(romPath)
+            ? getRomStem(game)
+            : p.basenameWithoutExtension(romPath);
+        return duckstationSafeFileName(title);
+      case DuckstationCardType.perGameTitle:
+        final serial = setup.serial;
+        final resources = serial == null ? null : await _resourcesDir();
+        if (serial == null || resources == null) return null;
+        final title = await DuckstationGameDb.saveTitle(resources, serial,
+            usePlaylistTitle: setup.config.usePlaylistTitle);
+        return title == null ? null : duckstationSafeFileName(title);
+      default:
+        return null;
+    }
+  }
+
+  /// [game]'s card for [port] on disk, or null when there is none.
+  Future<File?> _localCard(_CardSetup setup, Game game, String romPath, int port) async {
+    final type = setup.config.typeOf(port);
+    final name = await _cardName(setup, type, game, romPath);
+    if (name != null) {
+      final file = File(p.join(setup.memcardsDir, '${name}_$port.mcd'));
+      return await file.exists() ? file : null;
+    }
+    if (type == DuckstationCardType.perGameTitle) {
+      debugPrint('[DuckStation]   title unknown to the game database — matching cards by name');
+      return _cardByTitleWords(setup.memcardsDir, game, port);
+    }
+    debugPrint('[DuckStation]   serial unknown — no ${type.iniValue} card name for port $port');
+    return null;
+  }
+
+  /// Fallback when the card title isn't known: the newest card for [port]
+  /// whose name contains every word (3+ letters) of the ROM name without its
+  /// tags. Word matching avoids "final fantasy vii" matching "... viii";
+  /// multi-disc `.m3u` names like "Final Fantasy VII (USA).m3u" match
+  /// "Final Fantasy VII_1.mcd" (issue #62).
+  Future<File?> _cardByTitleWords(String memcardsDir, Game game, int port) async {
+    final dir = Directory(memcardsDir);
+    if (!await dir.exists()) return null;
+    final stemTokens =
+        _words(normalizeSaveMatchName(getRomStem(game))).where((w) => w.length >= 3).toList();
+    if (stemTokens.isEmpty) return null;
+    final suffix = '_$port.mcd';
+    File? best;
+    DateTime? bestModified;
+    await for (final entity in dir.list()) {
+      if (entity is! File) continue;
+      final base = p.basename(entity.path);
+      final lower = base.toLowerCase();
+      if (!lower.endsWith(suffix) || lower.startsWith('shared_card_')) continue;
+      final cardTokens = _words(normalizeSaveMatchName(base.substring(0, base.length - suffix.length)));
+      if (!stemTokens.every(cardTokens.contains)) continue;
+      final modified = await entity.lastModified();
+      if (best == null || modified.isAfter(bestModified!)) {
+        best = entity;
+        bestModified = modified;
+      }
+    }
+    return best;
+  }
+
+  static List<String> _words(String text) => text
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]'), ' ')
+      .split(' ')
+      .where((w) => w.isNotEmpty)
+      .toList();
+
+  /// The port a card was made for: the `_N` of `<name>_N.mcd` or
+  /// `shared_card_N.mcd`, the N of a legacy `McdN.mcd`, else port 1.
+  static int _portOf(String fileName) {
+    final base = p.basename(fileName).toLowerCase();
+    final match =
+        RegExp(r'_(\d+)\.mcd$').firstMatch(base) ?? RegExp(r'^mcd(\d+)\.mcd$').firstMatch(base);
+    final port = match == null ? null : int.tryParse(match.group(1)!);
+    return port != null && DuckstationMemcardConfig.ports.contains(port) ? port : 1;
+  }
+
+  static bool _isSharedCardName(String fileName) {
+    final base = p.basename(fileName).toLowerCase();
+    return base.startsWith('shared_card_') || RegExp(r'^mcd\d+\.mcd$').hasMatch(base);
+  }
+
+  @override
+  Future<String?> saveSyncBlockedReason(Game game, String romPath) async {
+    try {
+      final config = (await _cardSetup(game, romPath)).config;
+      if (config.portsOfType((t) => t.isPerGame).isNotEmpty) return null;
+      if (config.portsOfType((t) => t == DuckstationCardType.shared).isNotEmpty) {
+        return _sharedCardMessage;
+      }
+      return _noCardMessage;
+    } catch (e) {
+      debugPrint('[DuckStation] cannot tell whether saves can be synced: $e');
+      return null;
+    }
+  }
+
+  @override
+  Future<String?> getSaveDir(Game game, String romPath) async =>
+      (await _cardSetup(game, romPath, needSerial: false)).memcardsDir;
 
   @override
   Future<List<File>> getSaveFiles(Game game, String romPath,
       {DateTime? sessionStart, String syncMode = 'both'}) async {
-    final baseDir = await _getBaseDir(platformSlug: game.platformSlug);
-    debugPrint('[DuckStation] Save base: $baseDir');
+    final setup = await _cardSetup(game, romPath);
+    final config = setup.config;
+    debugPrint('[DuckStation] memory cards: ${setup.memcardsDir}  serial=${setup.serial}  '
+        'types=${DuckstationMemcardConfig.ports.map((port) => config.typeOf(port).iniValue).join(",")}  '
+        'sessionStart=$sessionStart');
+
+    bool changedThisSession(File file) =>
+        sessionStart == null ||
+        !file.statSync().modified.isBefore(sessionStart.subtract(const Duration(seconds: 2)));
 
     final result = <File>[];
-    final stem = getRomStem(game);
-    // Normalize the stem so multi-disc .m3u filenames like
-    // "Final Fantasy VII (USA).m3u" match the bare save title card
-    // "Final Fantasy VII_1.mcd" (issue #62).
-    final cleanStem = normalizeSaveMatchName(stem).toLowerCase();
-    debugPrint('[DuckStation] ROM stem: $stem  cleanStem: $cleanStem  sessionStart=$sessionStart');
-
-    final memcardsDir = Directory(p.join(baseDir, 'memcards'));
-    if (await memcardsDir.exists()) {
-      // Layer 1: per-game .mcd. DuckStation's per-game cards are named
-      // `{title}_N.mcd` (PerGameTitle) or `{serial}_N.mcd` (PerGame) with a
-      // slot-number suffix. We match by normalized stem as a substring, which
-      // covers both (e.g. "Suikoden II_1.mcd" contains "Suikoden II"). Keep
-      // only the newest matching card to avoid uploading multiple saves.
-      File? bestMcd;
-      DateTime? bestMcdMtime;
-      await for (final entity in memcardsDir.list()) {
-        if (entity is! File) continue;
-        if (!entity.path.toLowerCase().endsWith('.mcd')) continue;
-        final base = p.basename(entity.path).toLowerCase();
-        // Shared cards (shared_card_N.mcd) are handled in Layer 2 — never
-        // treat them as a per-game match here.
-        if (base.startsWith('shared_card_')) continue;
-        // Strip the `_N` slot suffix and any tags from the card name before
-        // comparing, so "suikoden ii_1" matches cleanStem "suikoden ii".
-        final cardName = base.substring(0, base.length - 4); // drop ".mcd"
-        final cleanCard = normalizeSaveMatchName(
-                cardName.replaceAll(RegExp(r'_\d+$'), ''))
-            .toLowerCase();
-
-        // Word-token match: split the stem into tokens (>=3 chars) and require
-        // every token to appear in the card. This avoids substring false
-        // positives like "final fantasy vii" matching "final fantasy viii".
-        final stemTokens = cleanStem
-            .replaceAll(RegExp(r'[^a-z0-9]'), ' ')
-            .split(' ')
-            .where((w) => w.length >= 3)
-            .toList();
-        final cardTokens = cleanCard
-            .replaceAll(RegExp(r'[^a-z0-9]'), ' ')
-            .split(' ')
-            .where((w) => w.isNotEmpty)
-            .toList();
-        final matches = stemTokens.isNotEmpty &&
-            stemTokens.every((w) => cardTokens.contains(w));
-        if (!matches) {
-          debugPrint('[DuckStation]   skipping (no stem match): ${entity.path}');
-          continue;
-        }
-        final stat = await entity.stat();
-        if (sessionStart != null &&
-            stat.modified.isBefore(sessionStart.subtract(const Duration(seconds: 2)))) continue;
-        if (bestMcd == null || stat.modified.isAfter(bestMcdMtime!)) {
-          bestMcd = entity;
-          bestMcdMtime = stat.modified;
-        }
+    final perGamePorts = config.portsOfType((t) => t.isPerGame).toList();
+    for (final port in perGamePorts) {
+      final card = await _localCard(setup, game, romPath, port);
+      if (card == null) {
+        debugPrint('[DuckStation]   port $port (${config.typeOf(port).iniValue}): no card on disk');
+      } else if (changedThisSession(card)) {
+        debugPrint('[DuckStation]   port $port (${config.typeOf(port).iniValue}): ${card.path}');
+        result.add(card);
       }
-      if (bestMcd != null) {
-        debugPrint('[DuckStation]   per-game memcard found: ${bestMcd.path}');
-        result.add(bestMcd);
-      }
+    }
 
-      // Layer 2: fall back to shared memory cards. DuckStation's real shared
-      // cards are `shared_card_1.mcd` / `shared_card_2.mcd`. We also accept the
-      // legacy `Mcd001.mcd` style used by older builds/forks. Upload all shared
-      // cards so the slot the game actually wrote to is covered.
-      if (result.isEmpty) {
-        final shared = <File>[];
-        await for (final entity in memcardsDir.list()) {
-          if (entity is! File) continue;
-          final base = p.basename(entity.path).toLowerCase();
-          final isRealShared = base.startsWith('shared_card_') && base.endsWith('.mcd');
-          final isLegacyShared = RegExp(r'^mcd\d+\.mcd$').hasMatch(base);
-          if (!isRealShared && !isLegacyShared) continue;
-          if (sessionStart != null) {
-            final stat = await entity.stat();
-            if (stat.modified.isBefore(sessionStart.subtract(const Duration(seconds: 2)))) continue;
-          }
-          shared.add(entity);
-        }
-        if (shared.isNotEmpty) {
-          debugPrint('[DuckStation]   using shared memcards: ${shared.map((f) => f.path).toList()}');
-          result.addAll(shared);
-        }
+    // Only shared cards: they can't be synced (see saveSyncBlockedReason),
+    // but returning them keeps the local backups of them.
+    if (perGamePorts.isEmpty) {
+      for (final port in config.portsOfType((t) => t == DuckstationCardType.shared)) {
+        final card =
+            File(p.join(setup.memcardsDir, config.cardPaths[port] ?? 'shared_card_$port.mcd'));
+        if (await card.exists() && changedThisSession(card)) result.add(card);
       }
-    } else {
-      debugPrint('[DuckStation]   memcards dir missing: ${memcardsDir.path}');
     }
 
     // Save states are not part of the save: they sync separately through
@@ -268,11 +372,9 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
   Future<bool> restoreSave(
       Game game, String destPath, Uint8List data, String filename) async {
     try {
-      final baseDir = await _getBaseDir(platformSlug: game.platformSlug);
-
+      final cards = <(String, List<int>)>[];
       if (filename.toLowerCase().endsWith('.zip')) {
-        final archive = ZipDecoder().decodeBytes(data);
-        for (final entry in archive) {
+        for (final entry in ZipDecoder().decodeBytes(data)) {
           if (!entry.isFile) continue;
           // Only memory cards are restored from a saves bundle. Older
           // Freegosy versions bundled `savestates/` into it; states now sync
@@ -281,27 +383,63 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
             debugPrint('[DuckStation]   skipping non-memcard entry: ${entry.name}');
             continue;
           }
-          final targetPath =
-              p.normalize(p.join(baseDir, 'memcards', p.basename(entry.name)));
-          await backupSave(targetPath);
-          final outFile = File(targetPath);
-          await outFile.parent.create(recursive: true);
-          await outFile.writeAsBytes(entry.content as List<int>);
+          cards.add((p.basename(entry.name), entry.content as List<int>));
         }
-        return true;
-      }
-
-      if (!filename.toLowerCase().endsWith('.mcd')) {
+      } else if (filename.toLowerCase().endsWith('.mcd')) {
+        cards.add((p.basename(filename), data));
+      } else {
         debugPrint('[DuckStation]   ignoring non-memcard save upload: $filename');
         return true;
       }
-      final targetPath = p.normalize(p.join(baseDir, 'memcards', filename));
-      await Directory(p.dirname(targetPath)).create(recursive: true);
-      await backupSave(targetPath);
-      await File(targetPath).writeAsBytes(data);
+      // A game's own card wins over a shared one uploaded for the same port
+      // by older versions: write the shared ones first.
+      cards.sort((a, b) => (_isSharedCardName(a.$1) ? 0 : 1) - (_isSharedCardName(b.$1) ? 0 : 1));
+
+      final setup = await _cardSetup(game, destPath);
+      for (final (name, bytes) in cards) {
+        final port = _portOf(name);
+        final type = setup.config.typeOf(port);
+        if (!type.isPerGame) {
+          debugPrint('[DuckStation]   skipping $name: port $port is ${type.iniValue} here');
+          continue;
+        }
+        final target = await _restoreTarget(setup, game, destPath, port);
+        if (target == null) {
+          debugPrint('[DuckStation]   skipping $name: no ${type.iniValue} card name for this game');
+          continue;
+        }
+        debugPrint('[DuckStation]   restoring $name → ${target.path}');
+        await target.parent.create(recursive: true);
+        await backupSave(target.path);
+        await target.writeAsBytes(bytes);
+      }
       return true;
     } catch (e) {
+      debugPrint('[DuckStation] restoreSave failed: $e');
       return false;
     }
   }
+
+  /// Where [game]'s card for [port] goes on this PC: the exact name when
+  /// known; by title, an existing card matched by name, else the ROM name
+  /// without its tags (DuckStation's database title usually reads the same).
+  Future<File?> _restoreTarget(_CardSetup setup, Game game, String romPath, int port) async {
+    final type = setup.config.typeOf(port);
+    final name = await _cardName(setup, type, game, romPath);
+    if (name != null) return File(p.join(setup.memcardsDir, '${name}_$port.mcd'));
+    if (type != DuckstationCardType.perGameTitle) return null;
+    final existing = await _cardByTitleWords(setup.memcardsDir, game, port);
+    if (existing != null) return existing;
+    final guess = duckstationSafeFileName(normalizeSaveMatchName(getRomStem(game)));
+    debugPrint('[DuckStation]   title unknown to the game database — naming the card "$guess"');
+    return guess.isEmpty ? null : File(p.join(setup.memcardsDir, '${guess}_$port.mcd'));
+  }
+}
+
+/// What [DuckstationSaveStrategy] needs to name a game's memory cards.
+class _CardSetup {
+  _CardSetup({required this.memcardsDir, required this.config, required this.serial});
+  final String memcardsDir;
+  final DuckstationMemcardConfig config;
+  final String? serial;
 }

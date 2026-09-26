@@ -15,6 +15,16 @@ class SaveMappingRequiredException implements Exception {
   String toString() => 'SaveMappingRequiredException: $message';
 }
 
+/// Thrown by save sync when the emulator is set up so that its saves can't be
+/// synced for one game (see [SaveStrategy.saveSyncBlockedReason]). [message]
+/// tells the user why and what to change; it is not an error to retry.
+class SaveSyncNotPossibleException implements Exception {
+  final String message;
+  SaveSyncNotPossibleException(this.message);
+  @override
+  String toString() => 'SaveSyncNotPossibleException: $message';
+}
+
 /// Abstract base for all save-file strategies.
 abstract class SaveStrategy {
   String get strategyId;
@@ -26,6 +36,13 @@ abstract class SaveStrategy {
   /// Strategies that return false will upload the raw save file directly,
   /// which is needed for emulators like emulator.js in RomM to read the files (e.g. .srm, .sav).
   bool get shouldZip => true;
+
+  /// Why [game]'s saves can't be synced with the emulator set up as it is
+  /// (e.g. one memory card shared by every game), or null when they can.
+  /// Checked before every push and pull; a reason stops both and reaches the
+  /// user. Local backups are not affected. Must not throw: a failure to tell
+  /// means null.
+  Future<String?> saveSyncBlockedReason(Game game, String romPath) async => null;
 
   /// Returns the local save directory for [game] given its [romPath].
   Future<String?> getSaveDir(Game game, String romPath);

@@ -8,6 +8,7 @@ import 'package:freegosy/core/romm/romm_models.dart';
 import 'package:freegosy/core/romm/romm_service.dart';
 import 'package:freegosy/core/save/backup_repository.dart';
 import 'package:freegosy/core/save/backup_service.dart';
+import 'package:freegosy/core/save/save_strategy.dart';
 import 'package:freegosy/core/save/save_sync_service.dart';
 import 'package:freegosy/core/save/state_sync_service.dart';
 import 'package:freegosy/core/storage/app_preferences.dart';
@@ -69,8 +70,12 @@ class _ExitedProcess implements io.Process {
 
 /// A SaveSyncService whose pushSaves only records that it ran.
 class _RecordingSaveSync extends SaveSyncService {
-  _RecordingSaveSync(super.romm, super.dirs, super.registry, super.prefs, this.log);
+  _RecordingSaveSync(super.romm, super.dirs, super.registry, super.prefs, this.log, {this.blockedReason});
   final List<String> log;
+
+  /// When set, pushSaves reports that saves can't be synced, like a
+  /// strategy's saveSyncBlockedReason does.
+  final String? blockedReason;
 
   @override
   Future<bool> pushSaves(Game game, String romPath,
@@ -80,12 +85,13 @@ class _RecordingSaveSync extends SaveSyncService {
       String? coreOverride,
       String? emulatorId}) async {
     log.add('push');
+    if (blockedReason != null) throw SaveSyncNotPossibleException(blockedReason!);
     return true;
   }
 }
 
 /// A GameLaunchService whose save push appends 'push' to [log].
-Future<GameLaunchService> _launchServiceLogging(List<String> log) async {
+Future<GameLaunchService> _launchServiceLogging(List<String> log, {String? blockedReason}) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = SharedPreferencesAppPreferences(await SharedPreferences.getInstance());
   final dirService = DirectoryService(prefs);
@@ -98,7 +104,7 @@ Future<GameLaunchService> _launchServiceLogging(List<String> log) async {
   return GameLaunchService(
     directoryService: dirService,
     strategyRegistry: registry,
-    saveSyncService: _RecordingSaveSync(rommService, dirService, registry, prefs, log),
+    saveSyncService: _RecordingSaveSync(rommService, dirService, registry, prefs, log, blockedReason: blockedReason),
     backupService: BackupService(),
     backupRepository: BackupRepository(),
     prefs: prefs,
@@ -235,6 +241,19 @@ void main() {
 
       expect(result, isNotNull);
       expect(log, ['push']);
+    });
+
+    test('saves that cannot be synced are reported in the result, and the pipeline goes on', () async {
+      final log = <String>[];
+      final service = await _launchServiceLogging(log, blockedReason: 'one shared card');
+
+      final result = await service.awaitExitAndSync(exited(), _game, 'Ico.iso',
+          syncMode: 'both', onExited: () => log.add('exited'));
+
+      expect(result, isNotNull);
+      expect(result!.syncOk, isFalse);
+      expect(result.saveSyncBlocked, 'one shared card');
+      expect(log, ['exited', 'push']);
     });
   });
 }

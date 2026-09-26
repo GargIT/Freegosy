@@ -368,6 +368,7 @@ class SaveSyncService {
     debugPrint('[SaveSync] ─── PUSH START ─── game="${game.displayName}" slug=${game.platformSlug}');
     debugPrint('[SaveSync]   romPath: $romPath');
     debugPrint('[SaveSync]   syncMode=$syncMode  force=$force  coreOverride=$coreOverride  emulatorId=$emulatorId  sessionStart=$sessionStart');
+    await _throwIfSyncBlocked(game, romPath, emulatorId: emulatorId);
     final caps = await _rommService.fetchCapabilities();
     final useDevice = caps.hasDeviceSaveSync;
     debugPrint('[SaveSync]   RomM version: ${useDevice ? "4.9+ (device sync)" : "legacy (<4.9)"}');
@@ -404,6 +405,7 @@ class SaveSyncService {
 
     debugPrint('[SaveSync] ─── PULL START ─── game="${game.displayName}" slug=${game.platformSlug}');
     debugPrint('[SaveSync]   romPath: $romPath  coreOverride=$coreOverride  emulatorId=$emulatorId  saveData=${saveData != null ? "manual" : "auto"}');
+    await _throwIfSyncBlocked(game, romPath, emulatorId: emulatorId);
     final caps = await _rommService.fetchCapabilities();
     final useDevice = caps.hasDeviceSaveSync;
     debugPrint('[SaveSync]   RomM version: ${useDevice ? "4.9+ (device sync)" : "legacy (<4.9)"}');
@@ -416,6 +418,17 @@ class SaveSyncService {
   // ---------------------------------------------------------------------------
   // Helpers shared by both paths
   // ---------------------------------------------------------------------------
+
+  /// Throws [SaveSyncNotPossibleException] when [game]'s save strategy says
+  /// the emulator is set up so its saves can't be synced (see
+  /// [SaveStrategy.saveSyncBlockedReason]).
+  Future<void> _throwIfSyncBlocked(Game game, String romPath, {String? emulatorId}) async {
+    final reason =
+        await getStrategyForGame(game, emulatorId: emulatorId)?.saveSyncBlockedReason(game, romPath);
+    if (reason == null) return;
+    debugPrint('[SaveSync] not syncing "${game.displayName}": $reason');
+    throw SaveSyncNotPossibleException(reason);
+  }
 
   String? _getDeviceId() => _prefs.getString('romm_device_id');
 
@@ -666,6 +679,8 @@ class SaveSyncService {
       debugPrint('[SaveSync] ─── PUSH END ─── ok=${result.ok}');
       return result.ok;
     } on SaveConflictException {
+      rethrow;
+    } on SaveSyncNotPossibleException {
       rethrow;
     } catch (e) {
       debugPrint('[SaveSync] [push] ERROR: $e');
@@ -963,6 +978,8 @@ class SaveSyncService {
       debugPrint('[SaveSync] ─── PUSH END ─── ok=${uploaded > 0}');
       return uploaded > 0;
     } on SaveConflictException {
+      rethrow;
+    } on SaveSyncNotPossibleException {
       rethrow;
     } catch (e) {
       debugPrint('[SaveSync] [push] ERROR: $e');

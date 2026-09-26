@@ -428,7 +428,7 @@ Future<_LaunchReport> _launchGame(
       syncOk: result?.syncOk ?? false,
       backupZipPath: result?.backupZipPath,
       playSessionRecorded: result?.playSessionRecorded ?? false,
-      error: null,
+      error: result?.saveSyncBlocked,
     );
     _emitResult(report, asJson);
     if (!returnResult) {

@@ -542,7 +542,8 @@ mixin LibraryActionsMixin<T extends ConsumerStatefulWidget> on ConsumerState<T> 
               ref.invalidate(resumeEntriesProvider);
             }
             if (!context.mounted || result == null) return;
-            if (result.syncOk) ErrorHandler.showSuccess(context, 'Save Synced', message: 'Saves synced');
+            if (result.saveSyncBlocked != null) ErrorHandler.showInfo(context, 'Saves Not Synced', message: result.saveSyncBlocked!);
+            else if (result.syncOk) ErrorHandler.showSuccess(context, 'Save Synced', message: 'Saves synced');
             else ErrorHandler.showSuccess(context, 'Up to Date', message: 'No files to upload');
             if (result.stateConflictCount > 0) {
               ErrorHandler.showWithAction(context, 'Save State Conflict',
@@ -822,7 +823,9 @@ mixin LibraryActionsMixin<T extends ConsumerStatefulWidget> on ConsumerState<T> 
   }
 
   Future<dynamic> _handleSyncError(BuildContext context, dynamic e, Game game, String romPath, SaveSyncService syncService, String syncMode, {required bool push}) async {
-    if (e is SaveMappingRequiredException) {
+    if (e is SaveSyncNotPossibleException) {
+      ErrorHandler.showInfo(context, 'Saves Not Synced', message: e.message);
+    } else if (e is SaveMappingRequiredException) {
       final strategy = syncService.getStrategyForGame(game);
       final selectedFolder = await LibraryDialogService.showFolderMappingDialog(context, strategy);
       if (selectedFolder != null) {

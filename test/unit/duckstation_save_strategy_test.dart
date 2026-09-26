@@ -76,16 +76,18 @@ void main() {
       }
     });
 
-    test('falls back to shared_card_N.mcd when no per-game card matches', () async {
+    test('never takes a shared or legacy Mcd001 card as the game\'s card', () async {
+      // Default settings: a card per game named by title. Shared cards hold
+      // every game's saves; uploading one as this game's save and restoring
+      // it elsewhere would roll back all other games.
       final base = await Directory.systemTemp.createTemp('duckstation_shared');
       try {
         final memcardsDir = Directory(p.join(base.path, 'memcards'));
         await memcardsDir.create(recursive: true);
-        // Real DuckStation shared card naming: shared_card_{N}.mcd
         await File(p.join(memcardsDir.path, 'shared_card_1.mcd')).writeAsBytes(List.filled(150, 1));
         await File(p.join(memcardsDir.path, 'shared_card_2.mcd')).writeAsBytes(List.filled(150, 2));
+        await File(p.join(memcardsDir.path, 'Mcd001.mcd')).writeAsBytes(List.filled(150, 3));
 
-        // No .mcd matching the game name — only shared cards.
         final ds = await _StubDirectoryService.create(
           exePath: null,
           appSupport: base.path,
@@ -101,39 +103,7 @@ void main() {
           p.join(base.path, 'Some Random Game.bin'),
         );
 
-        expect(files, hasLength(2));
-        expect(files.map((f) => p.basename(f.path)).toSet(),
-            containsAll(['shared_card_1.mcd', 'shared_card_2.mcd']));
-      } finally {
-        await base.delete(recursive: true);
-      }
-    });
-
-    test('falls back to legacy Mcd001.mcd style cards too', () async {
-      final base = await Directory.systemTemp.createTemp('duckstation_legacy_shared');
-      try {
-        final memcardsDir = Directory(p.join(base.path, 'memcards'));
-        await memcardsDir.create(recursive: true);
-        // Old/forks may still use Mcd001.mcd naming.
-        await File(p.join(memcardsDir.path, 'Mcd001.mcd')).writeAsBytes(List.filled(150, 1));
-
-        final ds = await _StubDirectoryService.create(
-          exePath: null,
-          appSupport: base.path,
-        );
-        final strategy = DuckstationSaveStrategy(
-          ds,
-          ds.testPrefs,
-          platform: const PlatformInfo('linux', environment: {'HOME': ''}),
-        );
-
-        final files = await strategy.getSaveFiles(
-          Game(id: 'g4', name: 'Another Random Game.bin', platformSlug: 'ps1', fileSize: 0),
-          p.join(base.path, 'Another Random Game.bin'),
-        );
-
-        expect(files, hasLength(1));
-        expect(p.basename(files.first.path), 'Mcd001.mcd');
+        expect(files, isEmpty);
       } finally {
         await base.delete(recursive: true);
       }
@@ -235,7 +205,7 @@ void main() {
         await Directory(p.join(exeDir, 'savestates')).create(recursive: true);
         // Scoop/portable builds have settings.ini but NOT portable.txt.
         await File(p.join(exeDir, 'settings.ini')).writeAsString('[Core]\n');
-        await File(p.join(exeDir, 'memcards', 'shared_card_1.mcd')).writeAsBytes(List.filled(150, 1));
+        await File(p.join(exeDir, 'memcards', 'Suikoden II_1.mcd')).writeAsBytes(List.filled(150, 1));
         final fakeExe = p.join(exeDir, 'duckstation-qt-x64-ReleaseLTCG.exe');
         await File(fakeExe).writeAsString('');
 
@@ -260,7 +230,7 @@ void main() {
           '/roms/ps1/Suikoden II.bin',
         );
         expect(files, hasLength(1));
-        expect(p.basename(files.first.path), 'shared_card_1.mcd');
+        expect(p.basename(files.first.path), 'Suikoden II_1.mcd');
       } finally {
         await base.delete(recursive: true);
       }
