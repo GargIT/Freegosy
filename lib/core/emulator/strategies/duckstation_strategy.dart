@@ -39,6 +39,16 @@ class DuckstationStrategy extends EmulatorStrategy {
   bool get supportsSaveSync => true;
 
   @override
+  bool get supportsStateSync => true;
+
+  @override
+  bool get supportsStateLoadOnLaunch => true;
+
+  /// DuckStation: `-statefile <filename>` loads the given state at boot.
+  @override
+  List<String> stateLoadArgs(String statePath) => ['-statefile', statePath];
+
+  @override
   String resolveSavePath(Game game) {
     if (platform.isMacOS) {
       final home = platform.environment['HOME'];
