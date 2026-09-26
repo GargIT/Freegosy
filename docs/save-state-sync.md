@@ -346,9 +346,10 @@ Safety rules that always apply:
   screenshot of real format 86 and 87 states decompresses to the declared
   256×192 RGBA and renders correctly in a Windows release build; the
   thumbnail shows in the slot list and is stored on RomM with the uploaded
-  state. Not yet verified by hand: a two-machine round trip, Resume, a
-  multi-disc `.m3u` game, what DuckStation does with a state from a newer
-  build, and the zstd plugin on Linux and macOS.
+  state; a two-machine round trip; and Resume Game booting DuckStation into
+  the state. Not yet verified by hand: a multi-disc `.m3u` game, what
+  DuckStation does with a state from a newer build, and the zstd plugin on
+  Linux and macOS.
 
 ## Possible follow-ups
 
