@@ -83,7 +83,7 @@ abstract class LinuxEnvironmentStrategy {
     final path = pathEnv ?? PlatformInfo.current.environment['PATH'] ?? '';
     final candidates = [
       for (final dir in path.split(':'))
-        if (dir.isNotEmpty) p.join(dir, 'flatpak'),
+        if (dir.isNotEmpty) p.posix.join(dir, 'flatpak'),
       ...flatpakFallbackLocations,
     ];
     for (final candidate in candidates) {
