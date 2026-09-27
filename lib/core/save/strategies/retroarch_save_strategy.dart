@@ -63,8 +63,8 @@ class RetroArchSaveStrategy extends SaveStrategy {
     // 1. NDS dynamic override (backward compat)
     if (slug == 'nds' || slug == 'nintendo-ds') {
       final info = _ndsCore == 'desmume'
-          ? const _CoreInfo('desmume2015_libretro', 'NDS', 'States/NDS')
-          : const _CoreInfo('melonds_libretro', 'NDS', 'States/NDS');
+          ? const _CoreInfo('desmume2015_libretro', 'DeSmuME 2015', 'DeSmuME 2015')
+          : const _CoreInfo('melonds_libretro', 'melonDS', 'melonDS');
       debugPrint('[SaveSync] [retroarch]   → NDS override: core=${info.coreName}');
       return info;
     }
@@ -153,81 +153,85 @@ class RetroArchSaveStrategy extends SaveStrategy {
   }
 
   // _CoreInfo maps platform slugs to RetroArch core info, including save and state directories.
+  // With "Sort Saves/States into Folders by Core" on, RetroArch names both
+  // folders after the core's library_name, which is the `corename` in the
+  // core's .info file (libretro/libretro-core-info): e.g. `Mupen64Plus-Next`,
+  // `LRPS2`, `FCEUmm`. PSP and 3DS keep their cores' own layouts.
   static const Map<String, _CoreInfo> _coreMap = {
     // Nintendo
     'gba':       _CoreInfo('mgba_libretro',            'mGBA',               'mGBA'),
     'gbc':       _CoreInfo('mgba_libretro',            'mGBA',               'mGBA'),
     'gb':        _CoreInfo('mgba_libretro',            'mGBA',               'mGBA'),
-    'nes':       _CoreInfo('fceumm_libretro',          'NES',                'States/NES'),
+    'nes':       _CoreInfo('fceumm_libretro',          'FCEUmm',             'FCEUmm'),
     'snes':      _CoreInfo('snes9x_libretro',          'Snes9x',             'Snes9x'),
-    'n64':       _CoreInfo('mupen64plus_next_libretro', 'N64',                'States/N64'),
-    'nds':       _CoreInfo('melonds_libretro',         'NDS',                'States/NDS'),
-    'nintendo-ds': _CoreInfo('melonds_libretro',       'NDS',                'States/NDS'),
+    'n64':       _CoreInfo('mupen64plus_next_libretro', 'Mupen64Plus-Next',   'Mupen64Plus-Next'),
+    'nds':       _CoreInfo('melonds_libretro',         'melonDS',            'melonDS'),
+    'nintendo-ds': _CoreInfo('melonds_libretro',       'melonDS',            'melonDS'),
     '3ds':       _CoreInfo('azahar_libretro',          '3DS',                'States/3DS'),
     'n3ds':      _CoreInfo('azahar_libretro',          '3DS',                'States/3DS'),
     'nintendo-3ds': _CoreInfo('azahar_libretro',       '3DS',                'States/3DS'),
-    'virtualboy': _CoreInfo('mednafen_vb_libretro',    'Virtual Boy',        'States/Virtual Boy'),
+    'virtualboy': _CoreInfo('mednafen_vb_libretro',    'Beetle VB',          'Beetle VB'),
     // Sony
     'psx':       _CoreInfo('pcsx_rearmed_libretro',    'PCSX-ReARMed',       'PCSX-ReARMed'),
     'ps1':       _CoreInfo('pcsx_rearmed_libretro',    'PCSX-ReARMed',       'PCSX-ReARMed'),
     'playstation': _CoreInfo('pcsx_rearmed_libretro',  'PCSX-ReARMed',       'PCSX-ReARMed'),
     'psp':       _CoreInfo('ppsspp_libretro',          'PPSSPP/PSP/SAVEDATA', 'PPSSPP'),
     'playstation-portable': _CoreInfo('ppsspp_libretro', 'PPSSPP/PSP/SAVEDATA', 'PPSSPP'),
-    'ps2':       _CoreInfo('pcsx2_libretro',           'PCSX2',              'States/PCSX2'),
+    'ps2':       _CoreInfo('pcsx2_libretro',           'LRPS2',              'LRPS2'),
     // Sega
-    'megadrive': _CoreInfo('genesis_plus_gx_libretro', 'Mega Drive',         'States/Mega Drive'),
-    'genesis':   _CoreInfo('genesis_plus_gx_libretro', 'Mega Drive',         'States/Mega Drive'),
-    'md':        _CoreInfo('genesis_plus_gx_libretro', 'Mega Drive',         'States/Mega Drive'),
-    'segacd':    _CoreInfo('genesis_plus_gx_libretro', 'Sega CD',            'States/Sega CD'),
-    'sms':       _CoreInfo('genesis_plus_gx_libretro', 'Sega Master System', 'States/Sega Master System'),
-    'mastersystem': _CoreInfo('genesis_plus_gx_libretro', 'Sega Master System', 'States/Sega Master System'),
-    'gamegear':  _CoreInfo('genesis_plus_gx_libretro', 'Game Gear',          'States/Game Gear'),
-    'saturn':    _CoreInfo('mednafen_saturn_libretro', 'Saturn',             'States/Saturn'),
-    'dc':        _CoreInfo('flycast_libretro',         'Dreamcast',          'States/Dreamcast'),
-    'dreamcast': _CoreInfo('flycast_libretro',         'Dreamcast',          'States/Dreamcast'),
+    'megadrive': _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
+    'genesis':   _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
+    'md':        _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
+    'segacd':    _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
+    'sms':       _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
+    'mastersystem': _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
+    'gamegear':  _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
+    'saturn':    _CoreInfo('mednafen_saturn_libretro', 'Beetle Saturn',      'Beetle Saturn'),
+    'dc':        _CoreInfo('flycast_libretro',         'Flycast',            'Flycast'),
+    'dreamcast': _CoreInfo('flycast_libretro',         'Flycast',            'Flycast'),
     // Atari
-    'atari2600': _CoreInfo('stella_libretro',          'Atari 2600',         'States/Atari 2600'),
-    'atari7800': _CoreInfo('prosystem_libretro',       'Atari 7800',         'States/Atari 7800'),
-    'atari5200': _CoreInfo('atari800_libretro',        'Atari 800',          'States/Atari 800'),
-    'atari800':  _CoreInfo('atari800_libretro',        'Atari 800',          'States/Atari 800'),
-    'lynx':      _CoreInfo('mednafen_lynx_libretro',   'Lynx',               'States/Lynx'),
+    'atari2600': _CoreInfo('stella_libretro',          'Stella',             'Stella'),
+    'atari7800': _CoreInfo('prosystem_libretro',       'ProSystem',          'ProSystem'),
+    'atari5200': _CoreInfo('atari800_libretro',        'Atari800',           'Atari800'),
+    'atari800':  _CoreInfo('atari800_libretro',        'Atari800',           'Atari800'),
+    'lynx':      _CoreInfo('mednafen_lynx_libretro',   'Beetle Lynx',        'Beetle Lynx'),
     // Arcade / SNK
-    'neogeo':    _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'States/FinalBurn Neo'),
-    'neo-geo':   _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'States/FinalBurn Neo'),
-    'neogeoaes': _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'States/FinalBurn Neo'),
-    'neogeomvs': _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'States/FinalBurn Neo'),
-    'neo-geo-aes': _CoreInfo('fbneo_libretro',         'FinalBurn Neo',      'States/FinalBurn Neo'),
-    'neo-geo-mvs': _CoreInfo('fbneo_libretro',         'FinalBurn Neo',      'States/FinalBurn Neo'),
-    'mvs':       _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'States/FinalBurn Neo'),
-    'aes':       _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'States/FinalBurn Neo'),
-    'arcade':    _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'States/FinalBurn Neo'),
-    'mame':      _CoreInfo('mame_libretro',            'MAME',               'States/MAME'),
+    'neogeo':    _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
+    'neo-geo':   _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
+    'neogeoaes': _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
+    'neogeomvs': _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
+    'neo-geo-aes': _CoreInfo('fbneo_libretro',         'FinalBurn Neo',      'FinalBurn Neo'),
+    'neo-geo-mvs': _CoreInfo('fbneo_libretro',         'FinalBurn Neo',      'FinalBurn Neo'),
+    'mvs':       _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
+    'aes':       _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
+    'arcade':    _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
+    'mame':      _CoreInfo('mame_libretro',            'MAME',               'MAME'),
     // FDS
-    'fds':       _CoreInfo('fceumm_libretro',          'FDS',                'States/FDS'),
-    'famicom-disk-system': _CoreInfo('fceumm_libretro', 'FDS',               'States/FDS'),
+    'fds':       _CoreInfo('fceumm_libretro',          'FCEUmm',             'FCEUmm'),
+    'famicom-disk-system': _CoreInfo('fceumm_libretro', 'FCEUmm',            'FCEUmm'),
     // NEC
-    'pcengine':  _CoreInfo('mednafen_pce_libretro',    'PCE',                'States/PCE'),
-    'pcenginecd': _CoreInfo('mednafen_pce_libretro',   'PCE',                'States/PCE'),
-    'supergrafx': _CoreInfo('mednafen_supergrafx_libretro', 'SuperGrafx',    'States/SuperGrafx'),
-    'pcfx':      _CoreInfo('mednafen_pcfx_libretro',   'PC-FX',              'States/PC-FX'),
+    'pcengine':  _CoreInfo('mednafen_pce_libretro',    'Beetle PCE',         'Beetle PCE'),
+    'pcenginecd': _CoreInfo('mednafen_pce_libretro',   'Beetle PCE',         'Beetle PCE'),
+    'supergrafx': _CoreInfo('mednafen_supergrafx_libretro', 'Beetle SuperGrafx', 'Beetle SuperGrafx'),
+    'pcfx':      _CoreInfo('mednafen_pcfx_libretro',   'Beetle PC-FX',       'Beetle PC-FX'),
     // Bandai
-    'wonderswan': _CoreInfo('mednafen_wswan_libretro', 'WonderSwan',         'States/WonderSwan'),
-    'wonderswancolor': _CoreInfo('mednafen_wswan_libretro', 'WonderSwan',    'States/WonderSwan'),
-    'ngp':       _CoreInfo('mednafen_ngp_libretro',    'Neo Geo Pocket',     'States/Neo Geo Pocket'),
-    'ngpc':      _CoreInfo('mednafen_ngp_libretro',    'Neo Geo Pocket',     'States/Neo Geo Pocket'),
+    'wonderswan': _CoreInfo('mednafen_wswan_libretro', 'Beetle WonderSwan',  'Beetle WonderSwan'),
+    'wonderswancolor': _CoreInfo('mednafen_wswan_libretro', 'Beetle WonderSwan', 'Beetle WonderSwan'),
+    'ngp':       _CoreInfo('mednafen_ngp_libretro',    'Beetle NeoPop',      'Beetle NeoPop'),
+    'ngpc':      _CoreInfo('mednafen_ngp_libretro',    'Beetle NeoPop',      'Beetle NeoPop'),
     // Computer
-    'dos':       _CoreInfo('dosbox_pure_libretro',     'DOSBox Pure',        'States/DOSBox Pure'),
-    'msx':       _CoreInfo('bluemsx_libretro',         'blueMSX',            'States/blueMSX'),
-    'c64':       _CoreInfo('vice_x64_libretro',        'VICE',               'States/VICE'),
-    'commodore64': _CoreInfo('vice_x64_libretro',      'VICE',               'States/VICE'),
-    'amiga':     _CoreInfo('puae_libretro',            'PUAE',               'States/PUAE'),
-    'zxspectrum': _CoreInfo('fuse_libretro',           'Fuse',               'States/Fuse'),
-    'amstradcpc': _CoreInfo('cap32_libretro',          'Caprice32',          'States/Caprice32'),
-    'acpc':       _CoreInfo('cap32_libretro',          'Caprice32',          'States/Caprice32'), // IGDB slug, what RomM actually sends — see #78
-    'sharp68000': _CoreInfo('px68k_libretro',          'PX-68K',             'States/PX-68K'),
-    'pc98':      _CoreInfo('np2kai_libretro',          'Neko Project II',    'States/Neko Project II'),
+    'dos':       _CoreInfo('dosbox_pure_libretro',     'DOSBox-pure',        'DOSBox-pure'),
+    'msx':       _CoreInfo('bluemsx_libretro',         'blueMSX',            'blueMSX'),
+    'c64':       _CoreInfo('vice_x64_libretro',        'VICE x64',           'VICE x64'),
+    'commodore64': _CoreInfo('vice_x64_libretro',      'VICE x64',           'VICE x64'),
+    'amiga':     _CoreInfo('puae_libretro',            'PUAE',               'PUAE'),
+    'zxspectrum': _CoreInfo('fuse_libretro',           'Fuse',               'Fuse'),
+    'amstradcpc': _CoreInfo('cap32_libretro',          'Caprice32',          'Caprice32'),
+    'acpc':       _CoreInfo('cap32_libretro',          'Caprice32',          'Caprice32'), // IGDB slug, what RomM actually sends — see #78
+    'sharp68000': _CoreInfo('px68k_libretro',          'PX68k',              'PX68k'),
+    'pc98':      _CoreInfo('np2kai_libretro',          'Neko Project II Kai', 'Neko Project II Kai'),
     // Other
-    'vectrex':   _CoreInfo('vecx_libretro',            'VecX',               'States/VecX'),
+    'vectrex':   _CoreInfo('vecx_libretro',            'vecx',               'vecx'),
   };
 
   /// Maps libretro core IDs (from `libretro_path` in retroarch.cfg) to their
@@ -235,8 +239,8 @@ class RetroArchSaveStrategy extends SaveStrategy {
   /// in `_coreMap`, this overrides the save folder resolution.
   static const Map<String, _CoreInfo> _coreFolderOverrides = {
     // N64 cores
-    'mupen64plus_next':    _CoreInfo('mupen64plus_next_libretro', 'N64',              'States/N64'),
-    'parallel_n64':        _CoreInfo('parallel_n64_libretro',     'Parallel N64',     'States/Parallel N64'),
+    'mupen64plus_next':    _CoreInfo('mupen64plus_next_libretro', 'Mupen64Plus-Next', 'Mupen64Plus-Next'),
+    'parallel_n64':        _CoreInfo('parallel_n64_libretro',     'ParaLLEl N64',     'ParaLLEl N64'),
     'mupen64plus':         _CoreInfo('mupen64plus_libretro',      'Mupen64Plus',      'States/Mupen64Plus'),
     // GBA cores
     'mgba':                _CoreInfo('mgba_libretro',             'mGBA',             'mGBA'),
@@ -245,20 +249,20 @@ class RetroArchSaveStrategy extends SaveStrategy {
     // SNES cores
     'snes9x':              _CoreInfo('snes9x_libretro',           'Snes9x',           'Snes9x'),
     'bsnes':               _CoreInfo('bsnes_libretro',            'bsnes',            'bsnes'),
-    'bsnes_hd_beta':       _CoreInfo('bsnes_hd_beta_libretro',    'bsnes',            'bsnes'),
+    'bsnes_hd_beta':       _CoreInfo('bsnes_hd_beta_libretro',    'bsnes-hd beta',    'bsnes-hd beta'),
     // PS1 cores
     'pcsx_rearmed':        _CoreInfo('pcsx_rearmed_libretro',     'PCSX-ReARMed',     'PCSX-ReARMed'),
-    'beetle_psx':          _CoreInfo('beetle_psx_libretro',       'Mednafen PSX',     'Mednafen PSX'),
-    'beetle_psx_hw':       _CoreInfo('beetle_psx_hw_libretro',    'Mednafen PSX HW',  'Mednafen PSX HW'),
+    'mednafen_psx':        _CoreInfo('mednafen_psx_libretro',     'Beetle PSX',       'Beetle PSX'),
+    'mednafen_psx_hw':     _CoreInfo('mednafen_psx_hw_libretro',  'Beetle PSX HW',    'Beetle PSX HW'),
     'duckstation':         _CoreInfo('duckstation_libretro',      'DuckStation',      'DuckStation'),
     // NDS cores
-    'melonds':             _CoreInfo('melonds_libretro',          'NDS',              'States/NDS'),
-    'desmume':             _CoreInfo('desmume2015_libretro',      'NDS',              'States/NDS'),
+    'melonds':             _CoreInfo('melonds_libretro',          'melonDS',          'melonDS'),
+    'desmume':             _CoreInfo('desmume2015_libretro',      'DeSmuME 2015',     'DeSmuME 2015'),
     // PSP cores
     'ppsspp':              _CoreInfo('ppsspp_libretro',           'PPSSPP/PSP/SAVEDATA', 'PPSSPP'),
     // Genesis cores
-    'genesis_plus_gx':     _CoreInfo('genesis_plus_gx_libretro',  'Mega Drive',       'States/Mega Drive'),
-    'fceumm':              _CoreInfo('fceumm_libretro',           'NES',              'States/NES'),
+    'genesis_plus_gx':     _CoreInfo('genesis_plus_gx_libretro',  'Genesis Plus GX',  'Genesis Plus GX'),
+    'fceumm':              _CoreInfo('fceumm_libretro',           'FCEUmm',           'FCEUmm'),
   };
 
   /// Reads `savefile_directory` and sort flags from retroarch.cfg.
@@ -541,26 +545,12 @@ class RetroArchSaveStrategy extends SaveStrategy {
           }
         }
       }
-
-      // Fallback 2: no save file exists yet (first pull). Pick the most
-      // recently modified core subfolder — the user just played with it.
-      io.Directory? newestDir;
-      DateTime newestTime = DateTime(0);
-      await for (final entity in rootDir.list()) {
-        if (entity is! io.Directory) continue;
-        // Skip non-core directories (e.g. "SNES" parent folder on macOS)
-        final stat = await entity.stat();
-        if (stat.modified.isAfter(newestTime)) {
-          newestTime = stat.modified;
-          newestDir = entity;
-        }
-      }
-      if (newestDir != null) {
-        debugPrint('[SaveSync] [retroarch] getSaveDir fallback2 newest → ${newestDir.path}');
-        return newestDir.path;
-      }
     }
 
+    // No save for this game yet (first pull): the core's own folder, which
+    // RetroArch names after the core's library_name. Never another core's
+    // folder: guessing "the most recently modified one" wrote PS2 memory
+    // cards into the N64 core's folder.
     debugPrint('[SaveSync] [retroarch] getSaveDir fallback expectedDir → $expectedDir');
     return expectedDir;
   }
