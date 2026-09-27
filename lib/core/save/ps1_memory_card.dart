@@ -56,6 +56,7 @@ class Ps1MemoryCard {
     if (bytes.length != size) throw FormatException('expected $size bytes, got ${bytes.length}');
     if (bytes[0] != 0x4D || bytes[1] != 0x43) throw const FormatException('no MC header');
     final saves = <Ps1CardSave>[];
+    final claimed = <int>{};
     for (var first = 1; first <= _dataBlocks; first++) {
       if (_state(bytes, first) != _inUseFirst) continue;
       final blocks = <int>[first];
@@ -70,6 +71,11 @@ class Ps1MemoryCard {
         }
         blocks.add(block);
         next = _next(bytes, block);
+      }
+      // A block in two saves' chains: replacing one save would free the
+      // other's block.
+      for (final block in blocks) {
+        if (!claimed.add(block)) throw FormatException('block $block belongs to two saves');
       }
       final declared = ByteData.sublistView(bytes, first * _frameSize).getUint32(4, Endian.little);
       if (declared != 0 && declared != blocks.length * _blockSize) {

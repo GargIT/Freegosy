@@ -56,6 +56,13 @@ void main() {
       ByteData.sublistView(size, 2 * 128).setUint32(4, 8192, Endian.little); // says 1 block, has 3
       expect(() => Ps1MemoryCard.parse(size), throwsFormatException);
     });
+
+    test('rejects a block claimed by two saves', () {
+      final shared = buildPs1Card([colinGame, other]);
+      ByteData.sublistView(shared, 4 * 128).setUint16(8, 5, Endian.little); // 2 → 3 → 4 → 6, other's last block
+      ByteData.sublistView(shared, 2 * 128).setUint32(4, 4 * 8192, Endian.little); // and the size says 4 blocks
+      expect(() => Ps1MemoryCard.parse(shared), throwsFormatException);
+    });
   });
 
   group('extract', () {
