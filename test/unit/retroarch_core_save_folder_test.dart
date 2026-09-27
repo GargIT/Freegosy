@@ -47,6 +47,17 @@ void main() {
   Game game(String slug, String rom) => Game(id: '1', name: rom, fsName: rom, platformSlug: slug, fileSize: 0);
   String romPath(String rom) => p.join(tempDir.path, 'roms', rom);
 
+  test('coreIdFor: the core as RomM\'s player and Argosy name it', () {
+    expect(strategy.coreIdFor(game('gba', 'x.gba')), 'mgba');
+    expect(strategy.coreIdFor(game('psx', 'x.cue')), 'pcsx_rearmed');
+    expect(strategy.coreIdFor(game('n64', 'x.z64')), 'mupen64plus_next');
+    expect(strategy.coreIdFor(game('nds', 'x.nds')), 'melonds');
+    expect(strategy.coreIdFor(game('unknown-platform', 'x.bin')), isNull);
+
+    strategy.setLaunchCoreOverride('mednafen_psx_hw_libretro.dll');
+    expect(strategy.coreIdFor(game('psx', 'x.cue')), 'mednafen_psx_hw', reason: 'the core the game was launched with');
+  });
+
   test('a first save goes to the core\'s own folder, not the most recently modified one', () async {
     final n64 = Directory(p.join(saveRoot, 'Mupen64Plus-Next'))..createSync();
     File(p.join(n64.path, 'Wipeout 64 (Europe).srm')).writeAsBytesSync([1]);

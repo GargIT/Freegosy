@@ -69,6 +69,7 @@ void main() {
       when(mockRommService.uploadSave(
         any,
         any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -85,6 +86,7 @@ void main() {
       verify(mockRommService.uploadSave(
         'game1',
         any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -108,6 +110,7 @@ void main() {
       when(mockRommService.uploadSave(
         any,
         any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -122,6 +125,7 @@ void main() {
       verify(mockRommService.uploadSave(
         'game1',
         any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -139,7 +143,7 @@ void main() {
 
       final ok = await service.pushSaves(game, romPath);
       expect(ok, isTrue, reason: 'Should return true (success) even if skipping due to matching hash');
-      verifyNever(mockRommService.uploadSave(any, any));
+      verifyNever(mockRommService.uploadSave(any, any, emulator: anyNamed('emulator')));
 
       await tempDir.delete(recursive: true);
     });
@@ -155,6 +159,7 @@ void main() {
 
         when(mockRommService.uploadSave(
           any, any,
+          emulator: anyNamed('emulator'),
           slot: anyNamed('slot'),
           deviceId: anyNamed('deviceId'),
           autocleanup: anyNamed('autocleanup'),
@@ -171,6 +176,7 @@ void main() {
         // Legacy path: deviceId must be null
         final captured = verify(mockRommService.uploadSave(
           any, any,
+          emulator: anyNamed('emulator'),
           slot: anyNamed('slot'),
           deviceId: captureAnyNamed('deviceId'),
           autocleanup: anyNamed('autocleanup'),
@@ -202,6 +208,7 @@ void main() {
             .thenAnswer((_) async => null);
         when(mockRommService.uploadSave(
           any, any,
+          emulator: anyNamed('emulator'),
           slot: anyNamed('slot'),
           deviceId: anyNamed('deviceId'),
           autocleanup: anyNamed('autocleanup'),
@@ -216,6 +223,7 @@ void main() {
         // Device path: deviceId must be non-null
         final captured = verify(mockRommService.uploadSave(
           any, any,
+          emulator: anyNamed('emulator'),
           slot: anyNamed('slot'),
           deviceId: captureAnyNamed('deviceId'),
           autocleanup: anyNamed('autocleanup'),
@@ -242,6 +250,7 @@ void main() {
 
         when(mockRommService.uploadSave(
           any, any,
+          emulator: anyNamed('emulator'),
           slot: anyNamed('slot'), deviceId: anyNamed('deviceId'),
           autocleanup: anyNamed('autocleanup'), autocleanupLimit: anyNamed('autocleanupLimit'),
           overwrite: anyNamed('overwrite'), screenshotFile: anyNamed('screenshotFile'),
@@ -270,6 +279,7 @@ void main() {
 
         when(mockRommService.uploadSave(
           any, any,
+          emulator: anyNamed('emulator'),
           slot: anyNamed('slot'), deviceId: anyNamed('deviceId'),
           autocleanup: anyNamed('autocleanup'), autocleanupLimit: anyNamed('autocleanupLimit'),
           overwrite: anyNamed('overwrite'), screenshotFile: anyNamed('screenshotFile'),
@@ -311,6 +321,7 @@ void main() {
 
         when(mockRommService.uploadSave(
           any, any,
+          emulator: anyNamed('emulator'),
           slot: anyNamed('slot'), deviceId: anyNamed('deviceId'),
           autocleanup: anyNamed('autocleanup'), autocleanupLimit: anyNamed('autocleanupLimit'),
           overwrite: anyNamed('overwrite'), screenshotFile: anyNamed('screenshotFile'),
@@ -385,6 +396,7 @@ void main() {
     void stubUpload(Future<Uint8List> Function(File) captureBytes) {
       when(mockRommService.uploadSave(
         any, any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -397,6 +409,29 @@ void main() {
         return (ok: true, conflict: null);
       });
     }
+
+    test('the upload is tagged with the emulator that made the save, in the freegosy slot', () async {
+      final tempDir = await setUpPcsx2Fixture('SAVE_DATA_V1');
+      final romPath = p.join(tempDir.path, 'Ico (SLUS-12345).iso');
+      stubUpload((file) async => Uint8List(0));
+
+      await service.pushSaves(pcsx2Game(), romPath);
+
+      final captured = verify(mockRommService.uploadSave(
+        any, any,
+        emulator: captureAnyNamed('emulator'),
+        slot: captureAnyNamed('slot'),
+        deviceId: anyNamed('deviceId'),
+        autocleanup: anyNamed('autocleanup'),
+        autocleanupLimit: anyNamed('autocleanupLimit'),
+        overwrite: anyNamed('overwrite'),
+        screenshotFile: anyNamed('screenshotFile'),
+        overrideFilename: anyNamed('overrideFilename'),
+      )).captured;
+      expect(captured, ['pcsx2', 'freegosy']);
+
+      await tempDir.delete(recursive: true);
+    });
 
     test('bundle metadata contains a contentHash, not a timeStamp', () async {
       final tempDir = await setUpPcsx2Fixture('SAVE_DATA_V1');
@@ -427,6 +462,7 @@ void main() {
 
       verify(mockRommService.uploadSave(
         any, any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),

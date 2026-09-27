@@ -419,6 +419,17 @@ class SaveSyncService {
 
   String? _getDeviceId() => _prefs.getString('romm_device_id');
 
+  /// The emulator a save is tagged with on RomM: RetroArch's core (e.g.
+  /// `pcsx_rearmed`, as RomM's in-browser player and Argosy name it), else
+  /// the emulator's id. RomM's player only offers saves tagged with its core.
+  String _saveEmulatorTag(SaveStrategy strategy, Game game, String? emulatorId) {
+    if (strategy is RetroArchSaveStrategy) {
+      final core = strategy.coreIdFor(game);
+      if (core != null) return core;
+    }
+    return emulatorId ?? strategy.strategyId;
+  }
+
   void _applyStrategyMappings(SaveStrategy strategy, Game game, {String? coreOverride}) {
     if (strategy is RetroArchSaveStrategy) {
       strategy.setLaunchCoreOverride(coreOverride);
@@ -626,6 +637,7 @@ class SaveSyncService {
       final result = await _rommService.uploadSave(
         game.id,
         finalUploadFile,
+        emulator: _saveEmulatorTag(strategy, game, emulatorId),
         deviceId: deviceId,
         slot: 'freegosy',
         autocleanup: true,
@@ -943,6 +955,7 @@ class SaveSyncService {
       final result = await _rommService.uploadSave(
         game.id,
         finalUploadFile,
+        emulator: _saveEmulatorTag(strategy, game, emulatorId),
         screenshotFile: finalScreenshotFile,
         overrideFilename: uploadFilename,
         autocleanup: true,

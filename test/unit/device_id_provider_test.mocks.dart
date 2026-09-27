@@ -302,6 +302,7 @@ class MockRommService extends _i1.Mock implements _i4.RommService {
   _i6.Future<({Map<String, dynamic>? conflict, bool ok})> uploadSave(
     String? gameId,
     _i8.File? saveFile, {
+    String? emulator,
     String? slot,
     String? deviceId,
     bool? autocleanup = false,
@@ -315,6 +316,7 @@ class MockRommService extends _i1.Mock implements _i4.RommService {
               #uploadSave,
               [gameId, saveFile],
               {
+                #emulator: emulator,
                 #slot: slot,
                 #deviceId: deviceId,
                 #autocleanup: autocleanup,

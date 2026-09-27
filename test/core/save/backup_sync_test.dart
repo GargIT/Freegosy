@@ -23,6 +23,7 @@ class MockRommService extends Mock implements RommService {
   Future<({bool ok, Map<String, dynamic>? conflict})> uploadSave(
     String gameId,
     io.File saveFile, {
+    String? emulator,
     String? slot,
     String? deviceId,
     bool autocleanup = false,

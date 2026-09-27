@@ -37,6 +37,14 @@ class RetroArchSaveStrategy extends SaveStrategy {
   RetroArchSaveStrategy(this._directoryService, {PlatformInfo? platform})
       : _platform = platform ?? PlatformInfo.current;
 
+  /// The core [game]'s saves come from, as RomM and other clients name it:
+  /// its id without `_libretro` (e.g. `pcsx_rearmed`), or null when unknown.
+  String? coreIdFor(Game game) {
+    final core = _getCoreInfo(game.platformSlug?.toLowerCase() ?? '')?.coreName;
+    if (core == null || core.isEmpty) return null;
+    return core.replaceAll(RegExp(r'\.(dll|so|dylib)$'), '').replaceAll(RegExp(r'_libretro$'), '');
+  }
+
   void setNdsCore(String core) {
     _ndsCore = core;
   }
