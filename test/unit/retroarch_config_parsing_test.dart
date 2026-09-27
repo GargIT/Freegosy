@@ -390,5 +390,65 @@ void main() {
 
       await tempDir.delete(recursive: true);
     });
+
+    /// A flat save folder (sort_savefiles_enable=false) holding [saves];
+    /// returns the saves getSaveFiles picks for a game whose ROM is [romName].
+    Future<List<String>> pick(String romName, List<String> saves) async {
+      final tempDir = await Directory.systemTemp.createTemp('ra_pick_save_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final configDir = p.join(tempDir.path, '.config', 'retroarch');
+      await Directory(configDir).create(recursive: true);
+      final saveDir = p.join(tempDir.path, 'saves');
+      await File(p.join(configDir, 'retroarch.cfg')).writeAsString([
+        'savefile_directory = "$saveDir"',
+        'sort_savefiles_enable = "false"',
+      ].join('\n'));
+      await Directory(saveDir).create(recursive: true);
+      for (final s in saves) {
+        await File(p.join(saveDir, s)).writeAsBytes([1, 2, 3]);
+      }
+      when(mockDirService.getEmulatorAppSupportDirectory('retroarch', platformSlug: anyNamed('platformSlug')))
+          .thenAnswer((_) async => configDir);
+      final strategy = RetroArchSaveStrategy(mockDirService,
+          platform: PlatformInfo('linux', environment: {'HOME': tempDir.path}));
+      final game = Game(id: '1', name: romName, fsName: romName, platformSlug: 'psx', fileSize: 0);
+      final files = await strategy.getSaveFiles(game, p.join(tempDir.path, 'roms', romName), syncMode: 'saves');
+      return files.map((f) => p.basename(f.path)).toList();
+    }
+
+    test('a sequel does not pick up the first game\'s save', () async {
+      expect(await pick('Crash Bandicoot 2 - Cortex Strikes Back (Europe).cue', ['Crash Bandicoot (Europe).srm']),
+          isEmpty);
+      expect(await pick('Crash Bandicoot 2 (Europe).cue', ['Crash Bandicoot (Europe).srm']), isEmpty);
+    });
+
+    test('the first game does not pick up a sequel\'s save', () async {
+      expect(await pick('Crash Bandicoot.cue', ['Crash Bandicoot 2 (Europe).srm']), isEmpty);
+    });
+
+    test('an exact name wins over a same-title save for another region', () async {
+      expect(await pick('Crash Bandicoot (USA).cue', ['Crash Bandicoot (Europe).srm', 'Crash Bandicoot (USA).srm']),
+          ['Crash Bandicoot (USA).srm']);
+    });
+
+    test('a save for the same title under another region or word order still matches', () async {
+      expect(await pick('Crash Bandicoot (Europe).cue', ['Crash Bandicoot (USA).srm']), ['Crash Bandicoot (USA).srm']);
+      expect(await pick('The Legend of Zelda (USA).sfc', ['Legend of Zelda, The (Europe) [!].srm']),
+          ['Legend of Zelda, The (Europe) [!].srm']);
+    });
+
+    test('isSaveNamedFor needs the stem followed by an extension', () {
+      expect(RetroArchSaveStrategy.isSaveNamedFor('Pokemon.srm', 'pokemon'), isTrue);
+      expect(RetroArchSaveStrategy.isSaveNamedFor('pokemon.0.mcr', 'Pokemon'), isTrue);
+      expect(RetroArchSaveStrategy.isSaveNamedFor('Pokemon Gold.srm', 'Pokemon'), isFalse);
+      expect(RetroArchSaveStrategy.isSaveNamedFor('Crash Bandicoot 2.srm', 'Crash Bandicoot'), isFalse);
+    });
+
+    test('isSameTitle compares every word, numbers included', () {
+      expect(RetroArchSaveStrategy.isSameTitle('Final Fantasy II (USA)', 'Final Fantasy (USA).srm'), isFalse);
+      expect(RetroArchSaveStrategy.isSameTitle('Final Fantasy (USA)', 'Final Fantasy II (USA).srm'), isFalse);
+      expect(RetroArchSaveStrategy.isSameTitle('Final Fantasy II (USA)', 'final fantasy ii (europe).srm'), isTrue);
+      expect(RetroArchSaveStrategy.isSameTitle('(USA)', 'Other (USA).srm'), isFalse);
+    });
   });
 }

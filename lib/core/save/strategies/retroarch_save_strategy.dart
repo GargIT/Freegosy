@@ -490,7 +490,7 @@ class RetroArchSaveStrategy extends SaveStrategy {
           await for (final f in io.Directory(subdir).list()) {
             if (f is! io.File) continue;
             final fname = p.basename(f.path).toLowerCase();
-            if (fname.startsWith(romStem) && _isSaveFile(fname)) {
+            if (isSaveNamedFor(fname, romStem) && _isSaveFile(fname)) {
               debugPrint('[SaveSync] [retroarch] getSaveDir linux fallback scan matched → $subdir');
               return subdir;
             }
@@ -535,7 +535,7 @@ class RetroArchSaveStrategy extends SaveStrategy {
         await for (final f in io.Directory(subdir).list()) {
           if (f is! io.File) continue;
           final fname = p.basename(f.path).toLowerCase();
-          if (fname.startsWith(romStem) && _isSaveFile(fname)) {
+          if (isSaveNamedFor(fname, romStem) && _isSaveFile(fname)) {
             debugPrint('[SaveSync] [retroarch] getSaveDir fallback1 scan matched → $subdir');
             return subdir;
           }
@@ -564,6 +564,33 @@ class RetroArchSaveStrategy extends SaveStrategy {
     debugPrint('[SaveSync] [retroarch] getSaveDir fallback expectedDir → $expectedDir');
     return expectedDir;
   }
+
+  /// Whether [fileName] is a save named after [stem]: the stem followed by
+  /// an extension, e.g. `Pokemon.srm` or `Pokemon.0.mcr`. A bare prefix is
+  /// not enough: "Crash Bandicoot" must not claim `Crash Bandicoot 2.srm`.
+  /// Case-insensitive.
+  @visibleForTesting
+  static bool isSaveNamedFor(String fileName, String stem) =>
+      fileName.toLowerCase().startsWith('${stem.toLowerCase()}.');
+
+  /// Whether the save file [fileName] has the same title as the ROM [stem],
+  /// ignoring case, punctuation, word order and `(…)` / `[…]` tags, so
+  /// `Legend of Zelda, The (Europe).srm` matches "The Legend of Zelda (USA)".
+  /// Every word counts, numbers included: "Crash Bandicoot 2" does not match
+  /// `Crash Bandicoot (Europe).srm`, and neither does "Crash Bandicoot" match
+  /// `Crash Bandicoot 2.srm`.
+  @visibleForTesting
+  static bool isSameTitle(String stem, String fileName) {
+    final a = _titleWords(stem);
+    return a.isNotEmpty && setEquals(a, _titleWords(p.basenameWithoutExtension(fileName)));
+  }
+
+  static Set<String> _titleWords(String name) => name
+      .toLowerCase()
+      .replaceAll(RegExp(r'\([^)]*\)|\[[^\]]*\]'), ' ')
+      .split(RegExp(r'[^a-z0-9]+'))
+      .where((w) => w.isNotEmpty)
+      .toSet();
 
   @override
   Future<List<io.File>> getSaveFiles(Game game, String romPath, {DateTime? sessionStart, String syncMode = 'both'}) async {
@@ -637,7 +664,7 @@ class RetroArchSaveStrategy extends SaveStrategy {
           await for (final entity in savesDirObj.list()) {
             if (entity is! io.File) continue;
             final fname = p.basename(entity.path).toLowerCase();
-            if (fname.startsWith(stemLower) && _isSaveFile(fname)) {
+            if (isSaveNamedFor(fname, stemLower) && _isSaveFile(fname)) {
               filesToCheck.add(entity);
               found = true;
               debugPrint('[SaveSync] [retroarch] getSaveFilesWithScreenshots exact match: $fname');
@@ -648,24 +675,16 @@ class RetroArchSaveStrategy extends SaveStrategy {
             await for (final entity in savesDirObj.list()) {
               if (entity is! io.File) continue;
               final fname = p.basename(entity.path).toLowerCase();
-              if (_isSaveFile(fname)) {
-                final stemWords = stemLower
-                    .replaceAll(RegExp(r'[^a-z0-9]'), ' ')
-                    .split(' ')
-                    .where((w) => w.length >= 3)
-                    .toList();
-                if (stemWords.any((word) => fname.contains(word))) {
-                  filesToCheck.add(entity);
-                  found = true;
-                  debugPrint('[SaveSync] [retroarch] getSaveFilesWithScreenshots fuzzy match: $fname');
-                  break;
-                }
+              if (_isSaveFile(fname) && isSameTitle(stem, fname)) {
+                filesToCheck.add(entity);
+                found = true;
+                debugPrint('[SaveSync] [retroarch] getSaveFilesWithScreenshots title match: $fname');
+                break;
               }
             }
           }
           if (!found) {
-            // No save file matches this game by name (exact stem or fuzzy word
-            // overlap). Do NOT fall back to "any .srm/.sav file in the directory" —
+            // No save file matches this game by name (exact stem or same title). Do NOT fall back to "any .srm/.sav file in the directory" —
             // that previously caused an unrelated game's save (e.g. a different
             // ROM's leftover .srm sitting in the same core folder) to be picked up
             // and uploaded under the current game's RomM entry (see issue #95).
