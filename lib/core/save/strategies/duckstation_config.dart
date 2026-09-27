@@ -149,6 +149,11 @@ class DuckstationGameDb {
     return games?[key];
   }
 
+  /// The disc set's card title when [serial] is a disc of a multi-disc game
+  /// (per `discsets.yaml`), else null.
+  static Future<String?> discSetTitle(String resourcesDir, String serial) async =>
+      (await _load(_discSetsPath(resourcesDir), 'titles', parseDiscSets))?[serial.toUpperCase()];
+
   /// Every disc serial of the multi-disc game [serial] belongs to (per
   /// `discsets.yaml`), else just [serial]. A later disc often reads the
   /// saves an earlier one wrote under its own serial.

@@ -221,7 +221,7 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
   /// The exact name (without `_N.mcd`) DuckStation gives [game]'s card of
   /// [type], or null when it can't be known: the serial couldn't be read,
   /// or (by title) the game database doesn't know the game.
-  Future<String?> _cardName(_CardSetup setup, DuckstationCardType type, Game game, String romPath) async {
+  Future<String?> _cardName(_CardSetup setup, DuckstationCardType type, Game game, String romPath, int port) async {
     switch (type) {
       case DuckstationCardType.perGameSerial:
         return setup.serial;
@@ -234,9 +234,17 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
         final serial = setup.serial;
         final resources = serial == null ? null : await _resourcesDir();
         if (serial == null || resources == null) return null;
-        final title = await DuckstationGameDb.saveTitle(resources, serial,
-            usePlaylistTitle: setup.config.usePlaylistTitle);
-        return title == null ? null : duckstationSafeFileName(title, _platform);
+        final discTitle = await DuckstationGameDb.saveTitle(resources, serial, usePlaylistTitle: false);
+        final setTitle = setup.config.usePlaylistTitle ? await DuckstationGameDb.discSetTitle(resources, serial) : null;
+        if (setTitle == null || discTitle == null) {
+          final title = setTitle ?? discTitle;
+          return title == null ? null : duckstationSafeFileName(title, _platform);
+        }
+        // A multi-disc game shares the disc set's card, but, as DuckStation
+        // does, a card already made under this disc's own title wins.
+        final discName = duckstationSafeFileName(discTitle, _platform);
+        if (await File(p.join(setup.memcardsDir, '${discName}_$port.mcd')).exists()) return discName;
+        return duckstationSafeFileName(setTitle, _platform);
       default:
         return null;
     }
@@ -245,7 +253,7 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
   /// [game]'s card for [port] on disk, or null when there is none.
   Future<File?> _localCard(_CardSetup setup, Game game, String romPath, int port) async {
     final type = setup.config.typeOf(port);
-    final name = await _cardName(setup, type, game, romPath);
+    final name = await _cardName(setup, type, game, romPath, port);
     if (name != null) {
       final file = File(p.join(setup.memcardsDir, '${name}_$port.mcd'));
       return await file.exists() ? file : null;
@@ -610,7 +618,7 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
   /// without its tags (DuckStation's database title usually reads the same).
   Future<File?> _restoreTarget(_CardSetup setup, Game game, String romPath, int port) async {
     final type = setup.config.typeOf(port);
-    final name = await _cardName(setup, type, game, romPath);
+    final name = await _cardName(setup, type, game, romPath, port);
     if (name != null) return File(p.join(setup.memcardsDir, '${name}_$port.mcd'));
     if (type != DuckstationCardType.perGameTitle) return null;
     final existing = await _cardByTitleWords(setup.memcardsDir, game, port);

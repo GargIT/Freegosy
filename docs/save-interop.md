@@ -63,7 +63,7 @@ the `.m3u` of a multi-disc game.
 | Type (`CardNType`) | File |
 |---|---|
 | Separate Card Per Game (Serial) (`PerGame`) | `<serial>_N.mcd`, e.g. `SLES-02605_1.mcd` |
-| Separate Card Per Game (Title) (`PerGameTitle`, the default for port 1) | `<title>_N.mcd`; the title is `saveName` (else `name`) from DuckStation's own `resources/gamedb.yaml`, or the disc set's from `discsets.yaml` for a multi-disc game when *Use Single Card For Multi-Disc Games* (`UsePlaylistTitle`) is on |
+| Separate Card Per Game (Title) (`PerGameTitle`, the default for port 1) | `<title>_N.mcd`; the title is `saveName` (else `name`) from DuckStation's own `resources/gamedb.yaml`, or the disc set's from `discsets.yaml` for a multi-disc game when *Use Single Card For Multi-Disc Games* (`UsePlaylistTitle`) is on, unless a card under the disc's own title already exists. Unsafe characters become `_` per platform (Windows: `/ \ < > : " | ? *` and a trailing `.`; Linux: `/ *`; macOS: `/ * :`) |
 | Separate Card Per Game (File Title) (`PerGameFileTitle`) | `<content>_N.mcd` |
 | Shared Between All Games (`Shared`) | `shared_card_N.mcd` (or `CardNPath`) |
 | No Memory Card / Non-Persistent | none |

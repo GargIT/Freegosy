@@ -86,6 +86,41 @@ void main() {
       expect(await saveFiles(), ['${saveName}_1.mcd']);
     });
 
+    group('by title, a multi-disc game', () {
+      const discsets = '- name: "Colin Set"\n  saveName: "Colin Set Save"\n  serials:\n    - SLES-02605\n    - SLES-12605\n';
+      const discCard = '${saveName}_1.mcd';
+      setUp(() async {
+        await cardTypes('Card1Type = PerGameTitle');
+        await env.writeGameDb(gamedb, discsets: discsets);
+        await File(p.join(env.memcardsDir, discCard)).delete(); // the group's setUp made one
+      });
+
+      test('the disc set\'s card', () async {
+        await env.writeCard('Colin Set Save_1.mcd');
+        expect(await saveFiles(), ['Colin Set Save_1.mcd']);
+      });
+
+      test('a card already made under the disc\'s own title wins, as in DuckStation', () async {
+        await env.writeCard('Colin Set Save_1.mcd');
+        await env.writeCard(discCard);
+        expect(await saveFiles(), [discCard]);
+      });
+
+      test('the disc\'s own card with playlist titles off', () async {
+        await cardTypes('Card1Type = PerGameTitle\nUsePlaylistTitle = false');
+        await env.writeCard('Colin Set Save_1.mcd');
+        await env.writeCard(discCard);
+        expect(await saveFiles(), [discCard]);
+      });
+
+      test('a pull writes the disc set\'s card when the disc has none of its own', () async {
+        final ok = await env.strategy.restoreSave(game, romPath(), buildPs1Card([]), 'SLES-02605_1.mcd');
+        expect(ok, isTrue);
+        expect(cardsOnDisk(), contains('Colin Set Save_1.mcd'));
+        expect(cardsOnDisk(), isNot(contains(discCard)));
+      });
+    });
+
     test('by title with no game database: an existing card matched by name', () async {
       await cardTypes('Card1Type = PerGameTitle');
       final files = await saveFiles();
