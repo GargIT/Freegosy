@@ -2,6 +2,8 @@ import 'dart:io' as io;
 import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 
+import '../../platform/platform_info.dart';
+
 /// DuckStation's memory card types, as written in `settings.ini`
 /// (`[MemoryCards] CardNType`).
 enum DuckstationCardType {
@@ -106,11 +108,19 @@ Map<String, String> parseIniSection(String text, String section) {
   return result;
 }
 
-/// [name] made safe as a file name the way DuckStation does for memory
-/// cards: characters Windows forbids in file names (and control characters)
-/// become `_`.
-String duckstationSafeFileName(String name) =>
-    name.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_');
+/// [name] made safe as a file name the way DuckStation names memory cards on
+/// [platform] (its `Path::SanitizeFileName`): control characters, `/` and
+/// `*` become `_` everywhere; on Windows also `\ < > : " | ?` and a trailing
+/// `.`; on macOS also `:`.
+String duckstationSafeFileName(String name, PlatformInfo platform) {
+  final forbidden = platform.isWindows
+      ? RegExp(r'[\x00-\x1F/\\<>:"|?*]')
+      : platform.isMacOS
+          ? RegExp(r'[\x00-\x1F/*:]')
+          : RegExp(r'[\x00-\x1F/*]');
+  final safe = name.replaceAll(forbidden, '_');
+  return platform.isWindows && safe.endsWith('.') ? '${safe.substring(0, safe.length - 1)}_' : safe;
+}
 
 /// The title DuckStation names a game's memory card by in "Separate Card Per
 /// Game (Title)" mode, from its own `gamedb.yaml` (and `discsets.yaml` for

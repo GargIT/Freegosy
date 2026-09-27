@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:freegosy/core/platform/platform_info.dart';
 import 'package:freegosy/core/save/strategies/duckstation_config.dart';
 import 'package:path/path.dart' as p;
 
@@ -65,10 +66,38 @@ Card2Type = None
     });
   });
 
-  test('duckstationSafeFileName replaces characters Windows forbids', () {
-    expect(duckstationSafeFileName('Colin McRae Rally 2.0 (Europe) (En,Fr,De,Es,It)'),
-        'Colin McRae Rally 2.0 (Europe) (En,Fr,De,Es,It)');
-    expect(duckstationSafeFileName('A: B/C\\D?*"<>|'), 'A_ B_C_D______');
+  group('duckstationSafeFileName follows DuckStation on each platform', () {
+    const windows = PlatformInfo('windows');
+    const linux = PlatformInfo('linux');
+    const macos = PlatformInfo('macos');
+
+    test('an ordinary title is unchanged everywhere', () {
+      for (final platform in [windows, linux, macos]) {
+        expect(duckstationSafeFileName('Colin McRae Rally 2.0 (Europe) (En,Fr,De,Es,It)', platform),
+            'Colin McRae Rally 2.0 (Europe) (En,Fr,De,Es,It)');
+      }
+    });
+
+    test('Windows: the characters it forbids, and a trailing period', () {
+      expect(duckstationSafeFileName('A: B/C\\D?*"<>|', windows), 'A_ B_C_D______');
+      expect(duckstationSafeFileName('Castlevania: Symphony of the Night', windows),
+          'Castlevania_ Symphony of the Night');
+      expect(duckstationSafeFileName('Crash Bandicoot 3: Warped.', windows), 'Crash Bandicoot 3_ Warped_');
+      expect(duckstationSafeFileName('Tab\there', windows), 'Tab_here');
+    });
+
+    test('Linux: only slashes, asterisks and control characters', () {
+      expect(duckstationSafeFileName('Castlevania: Symphony of the Night', linux),
+          'Castlevania: Symphony of the Night');
+      expect(duckstationSafeFileName('A: B/C\\D?*"<>|.', linux), 'A: B_C\\D?_"<>|.');
+      expect(duckstationSafeFileName('Tab\there', linux), 'Tab_here');
+    });
+
+    test('macOS: the Linux set plus colons', () {
+      expect(duckstationSafeFileName('Castlevania: Symphony of the Night', macos),
+          'Castlevania_ Symphony of the Night');
+      expect(duckstationSafeFileName('A/B*C?.', macos), 'A_B_C?.');
+    });
   });
 
   group('DuckstationGameDb', () {

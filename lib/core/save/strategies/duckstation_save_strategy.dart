@@ -229,14 +229,14 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
         final title = await FileSystemEntity.isDirectory(romPath)
             ? getRomStem(game)
             : p.basenameWithoutExtension(romPath);
-        return duckstationSafeFileName(title);
+        return duckstationSafeFileName(title, _platform);
       case DuckstationCardType.perGameTitle:
         final serial = setup.serial;
         final resources = serial == null ? null : await _resourcesDir();
         if (serial == null || resources == null) return null;
         final title = await DuckstationGameDb.saveTitle(resources, serial,
             usePlaylistTitle: setup.config.usePlaylistTitle);
-        return title == null ? null : duckstationSafeFileName(title);
+        return title == null ? null : duckstationSafeFileName(title, _platform);
       default:
         return null;
     }
@@ -423,7 +423,9 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
   }
 
   /// `<ROM name>.srm`, the name a PS1 card has in RetroArch.
-  String _srmName(Game game) => '${duckstationSafeFileName(getRomStem(game))}.srm';
+  /// The upload's name, safe on every OS the save may be pulled to.
+  String _srmName(Game game) =>
+      '${duckstationSafeFileName(getRomStem(game), const PlatformInfo('windows'))}.srm';
 
   /// Writes [bytes] as [name] in this game's temporary upload folder.
   static Future<File> _writeUpload(Game game, String name, List<int> bytes) async {
@@ -609,7 +611,7 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
     if (type != DuckstationCardType.perGameTitle) return null;
     final existing = await _cardByTitleWords(setup.memcardsDir, game, port);
     if (existing != null) return existing;
-    final guess = duckstationSafeFileName(normalizeSaveMatchName(getRomStem(game)));
+    final guess = duckstationSafeFileName(normalizeSaveMatchName(getRomStem(game)), _platform);
     debugPrint('[DuckStation]   title unknown to the game database — naming the card "$guess"');
     return guess.isEmpty ? null : File(p.join(setup.memcardsDir, '${guess}_$port.mcd'));
   }
