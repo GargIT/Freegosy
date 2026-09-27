@@ -427,7 +427,7 @@ class SaveSyncService {
         await getStrategyForGame(game, emulatorId: emulatorId)?.saveSyncBlockedReason(game, romPath);
     if (reason == null) return;
     debugPrint('[SaveSync] not syncing "${game.displayName}": $reason');
-    throw SaveSyncNotPossibleException(reason);
+    throw SaveSyncBlockedException(reason);
   }
 
   String? _getDeviceId() => _prefs.getString('romm_device_id');
@@ -771,6 +771,10 @@ class SaveSyncService {
         }
       }
 
+      if (SaveRestoreGuard.restoreTooLate) {
+        debugPrint('[SaveSync] [pull] The launch went ahead without this pull — not restoring "$adjustedFilename"');
+        return false;
+      }
       final ok = await strategy.restoreSave(game, romPath, bytes, adjustedFilename);
       if (!ok) {
         debugPrint('[SaveSync] [pull] Strategy failed to restore save');
@@ -1100,6 +1104,10 @@ class SaveSyncService {
       final adjustedFilename = _adjustFilenameForFormat(bytes, normalizeSaveFilename(filename));
       debugPrint('[SaveSync] [pull] Downloaded ${bytes.length} bytes → restoring as "$adjustedFilename"');
 
+      if (SaveRestoreGuard.restoreTooLate) {
+        debugPrint('[SaveSync] [pull] The launch went ahead without this pull — not restoring "$adjustedFilename"');
+        return false;
+      }
       final ok = await strategy.restoreSave(game, romPath, bytes, adjustedFilename);
 
       if (ok) {

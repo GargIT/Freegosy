@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' as io;
 import 'dart:typed_data';
 import 'package:path/path.dart' as p;
@@ -23,6 +24,39 @@ class SaveSyncNotPossibleException implements Exception {
   SaveSyncNotPossibleException(this.message);
   @override
   String toString() => 'SaveSyncNotPossibleException: $message';
+}
+
+/// A [SaveSyncNotPossibleException] for how the emulator is set up (see
+/// [SaveStrategy.saveSyncBlockedReason]), as opposed to a problem with one
+/// save. It holds for every launch until the settings change, so the
+/// pre-launch pull only logs it.
+class SaveSyncBlockedException extends SaveSyncNotPossibleException {
+  SaveSyncBlockedException(super.message);
+}
+
+/// Tells a pull that started before a launch whether the launch went ahead
+/// without it (the pre-launch wait timed out). A save written after the
+/// emulator has opened its files would be overwritten from memory when the
+/// game next saves, so a late pull doesn't write it.
+///
+/// [run] makes the guard [current] for everything [body] starts, so the
+/// check reaches the save strategies without passing it through every call.
+class SaveRestoreGuard {
+  static const _zoneKey = #freegosySaveRestoreGuard;
+
+  bool _tooLate = false;
+
+  /// The launch went ahead: the pull must not write anything any more.
+  void markTooLate() => _tooLate = true;
+
+  bool get tooLate => _tooLate;
+
+  T run<T>(T Function() body) => runZoned(body, zoneValues: {_zoneKey: this});
+
+  static SaveRestoreGuard? get current => Zone.current[_zoneKey] as SaveRestoreGuard?;
+
+  /// Whether the pull running here was overtaken by the launch.
+  static bool get restoreTooLate => current?.tooLate ?? false;
 }
 
 /// Abstract base for all save-file strategies.

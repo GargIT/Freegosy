@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:freegosy/core/romm/romm_models.dart';
 import 'package:freegosy/core/romm/romm_service.dart';
 import 'package:freegosy/core/emulator/strategy_registry.dart';
+import 'package:freegosy/core/save/save_strategy.dart';
 import 'package:freegosy/core/save/save_sync_service.dart';
 import 'package:freegosy/core/storage/directory_service.dart';
 import 'package:freegosy/core/storage/shared_preferences_app_preferences.dart';
@@ -492,6 +493,53 @@ void main() {
       expect(await File(await localSaveFilePath(tempDir)).readAsString(), 'CLOUD_NEW');
 
       await tempDir.delete(recursive: true);
+    });
+
+    test('a pull the launch went ahead without writes nothing', () async {
+      final tempDir = await setUpPcsx2Fixture('LOCAL_OLD');
+      final romPath = p.join(tempDir.path, 'Ico (SLUS-12345).iso');
+
+      final archive = Archive();
+      archive.addFile(ArchiveFile.string('freegosy_sync.txt', jsonEncode({'contentHash': 'deadbeef'})));
+      archive.addFile(ArchiveFile.string('SLUS-12345/save.bin', 'CLOUD_NEW'));
+      final cloudZipBytes = Uint8List.fromList(ZipEncoder().encode(archive));
+
+      final guard = SaveRestoreGuard();
+      when(mockRommService.getLatestSave(any, deviceId: anyNamed('deviceId')))
+          .thenAnswer((_) async => {
+                'download_path': 'https://example.test/save.zip',
+                'file_name': 'Ico (SLUS-12345).zip',
+                'device_syncs': <dynamic>[],
+              });
+      // RomM is slow: the pre-launch wait gives up while the save downloads.
+      when(mockRommService.downloadSave(any, deviceId: anyNamed('deviceId'))).thenAnswer((_) async {
+        guard.markTooLate();
+        return cloudZipBytes;
+      });
+
+      final ok = await guard.run(() => service.pullSave(pcsx2Game(), romPath));
+
+      expect(ok, isFalse);
+      expect(await File(await localSaveFilePath(tempDir)).readAsString(), 'LOCAL_OLD');
+
+      await tempDir.delete(recursive: true);
+    });
+  });
+
+  group('SaveRestoreGuard', () {
+    test('is current for everything run inside it, across awaits', () async {
+      expect(SaveRestoreGuard.current, isNull);
+      expect(SaveRestoreGuard.restoreTooLate, isFalse);
+      final guard = SaveRestoreGuard();
+      final seen = await guard.run(() async {
+        await Future<void>.delayed(Duration.zero);
+        final before = SaveRestoreGuard.restoreTooLate;
+        guard.markTooLate();
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        return (identical(SaveRestoreGuard.current, guard), before, SaveRestoreGuard.restoreTooLate);
+      });
+      expect(seen, (true, false, true));
+      expect(SaveRestoreGuard.current, isNull);
     });
   });
 }

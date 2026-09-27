@@ -513,20 +513,42 @@ mixin LibraryActionsMixin<T extends ConsumerStatefulWidget> on ConsumerState<T> 
       // reintroducing files inside the emulator-managed folder.
       final backupService = ref.read(backupServiceProvider);
       final resolvedEmulatorId = strategy.emulatorId;
-      final pull = backupService
-          .createImmediate(game, romPath, syncService, emulatorId: resolvedEmulatorId)
-          .then((_) => syncService.pullSave(game, romPath, coreOverride: overrideCoreId, emulatorId: resolvedEmulatorId))
-          .catchError((_) => false);
+      final guard = SaveRestoreGuard();
+      final pull = guard
+          .run(() => backupService
+              .createImmediate(game, romPath, syncService, emulatorId: resolvedEmulatorId)
+              .then((_) =>
+                  syncService.pullSave(game, romPath, coreOverride: overrideCoreId, emulatorId: resolvedEmulatorId)))
+          .catchError((Object e) {
+        debugPrint('[SaveSync] Pre-launch pull failed: $e');
+        // A save that couldn't be put in place ("card full", a card that
+        // can't be read) is worth telling; an emulator set up without
+        // syncable saves would say so on every launch, so that only logs.
+        if (e is SaveSyncNotPossibleException && e is! SaveSyncBlockedException && context.mounted) {
+          ErrorHandler.showInfo(context, 'Saves Not Synced', message: e.message);
+        }
+        return false;
+      });
       // A pull that rewrites a file other games' saves share (e.g. a
       // DuckStation card shared by all games) must land before the emulator
-      // opens it; bounded so an unreachable RomM can't hold the launch.
+      // opens it; bounded so an unreachable RomM can't hold the launch. A
+      // pull still running then writes nothing (see SaveRestoreGuard).
       final mustFinish = await syncService
               .getStrategyForGame(game, emulatorId: resolvedEmulatorId)
               ?.pullMustFinishBeforeLaunch(game, romPath) ??
           false;
       if (mustFinish) {
         debugPrint('[SaveSync] Waiting for the pull before launch (shared save file)');
-        await pull.timeout(const Duration(seconds: 20), onTimeout: () => false);
+        await pull.timeout(const Duration(seconds: 20), onTimeout: () {
+          guard.markTooLate();
+          debugPrint('[SaveSync] Pull still running after 20 s — launching without it');
+          if (context.mounted) {
+            ErrorHandler.showInfo(context, 'Save Not Pulled',
+                message: "The save from RomM didn't arrive in time, so ${game.name} starts with the save on "
+                    'this PC. The download is not applied while the game runs.');
+          }
+          return false;
+        });
       } else {
         unawaited(pull);
       }

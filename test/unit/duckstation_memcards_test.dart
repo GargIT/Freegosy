@@ -379,6 +379,23 @@ void main() {
         expect(File('${shared.path}.bak').existsSync(), isTrue, reason: 'the old card is backed up first');
       });
 
+      test('once DuckStation has started without this pull, the card is left as it is', () async {
+        final shared = await writeShared([otherGame, colinSetting]);
+        final before = shared.readAsBytesSync();
+        final incoming = buildPs1Card([(name: 'BESLES-02605NEW', blocks: [1, 2], fill: 0x66)]);
+
+        final guard = SaveRestoreGuard()..markTooLate();
+        await guard.run(() => env.strategy.restoreSave(game, romPath(), incoming, 'SLES-02605_1.mcd'));
+
+        expect(shared.readAsBytesSync(), before);
+        expect(File('${shared.path}.bak').existsSync(), isFalse);
+
+        await SaveRestoreGuard().run(() => env.strategy.restoreSave(game, romPath(), incoming, 'SLES-02605_1.mcd'));
+        expect(Ps1MemoryCard.parse(shared.readAsBytesSync()).saves.map((s) => s.name).toSet(),
+            {otherGame.name, 'BESLES-02605NEW'},
+            reason: 'a pull in time is written as before');
+      });
+
       test('creates the shared card when there is none yet', () async {
         final incoming = buildPs1Card([colinSetting]);
 

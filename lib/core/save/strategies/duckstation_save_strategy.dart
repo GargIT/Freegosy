@@ -592,6 +592,10 @@ class DuckstationSaveStrategy extends SaveStrategy with StateSyncCapable {
       debugPrint('[DuckStation]   $name holds no saves of this game — ${shared.path} left as it is');
       return;
     }
+    if (SaveRestoreGuard.restoreTooLate) {
+      debugPrint('[DuckStation]   DuckStation has started without this pull — ${shared.path} left as it is');
+      return;
+    }
     await shared.parent.create(recursive: true);
     if (await shared.exists()) await backupSave(shared.path);
     final temp = File('${shared.path}.freegosy_tmp');
