@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:freegosy/core/platform/platform_info.dart';
 import 'package:freegosy/core/romm/romm_models.dart';
 import 'package:freegosy/core/save/strategies/duckstation_save_strategy.dart';
+import 'package:freegosy/core/storage/app_preferences.dart';
 import 'package:freegosy/core/storage/directory_service.dart';
 import 'package:freegosy/core/storage/shared_preferences_app_preferences.dart';
 import 'package:path/path.dart' as p;
@@ -11,15 +12,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Minimal DirectoryService stub — implements only the methods
 /// DuckstationSaveStrategy calls during save resolution.
 class _StubDirectoryService extends DirectoryService {
+  final AppPreferences testPrefs;
   final String? _exePath;
   final String _appSupport;
 
   _StubDirectoryService._internal(
-    super.prefs, {
+    this.testPrefs, {
     required String? exePath,
     required String appSupport,
   })  : _exePath = exePath,
-        _appSupport = appSupport;
+        _appSupport = appSupport,
+        super(testPrefs);
 
   static Future<_StubDirectoryService> create({
     String? exePath,
@@ -57,6 +60,7 @@ void main() {
         );
         final strategy = DuckstationSaveStrategy(
           ds,
+          ds.testPrefs,
           platform: const PlatformInfo('linux', environment: {'HOME': ''}),
         );
 
@@ -88,6 +92,7 @@ void main() {
         );
         final strategy = DuckstationSaveStrategy(
           ds,
+          ds.testPrefs,
           platform: const PlatformInfo('linux', environment: {'HOME': ''}),
         );
 
@@ -118,6 +123,7 @@ void main() {
         );
         final strategy = DuckstationSaveStrategy(
           ds,
+          ds.testPrefs,
           platform: const PlatformInfo('linux', environment: {'HOME': ''}),
         );
 
@@ -142,6 +148,7 @@ void main() {
         );
         final strategy = DuckstationSaveStrategy(
           ds,
+          ds.testPrefs,
           platform: const PlatformInfo('linux', environment: {'HOME': ''}),
         );
 
@@ -172,6 +179,7 @@ void main() {
         );
         final strategy = DuckstationSaveStrategy(
           ds,
+          ds.testPrefs,
           platform: const PlatformInfo('linux', environment: {'HOME': ''}),
         );
 
@@ -202,6 +210,7 @@ void main() {
         );
         final strategy = DuckstationSaveStrategy(
           ds,
+          ds.testPrefs,
           platform: const PlatformInfo('linux', environment: {'HOME': ''}),
         );
 
@@ -235,6 +244,7 @@ void main() {
         final ds = await _StubDirectoryService.create(exePath: fakeExe, appSupport: '/nonexistent');
         final strategy = DuckstationSaveStrategy(
           ds,
+          ds.testPrefs,
           platform: PlatformInfo('windows', environment: {'LOCALAPPDATA': emptyLocal}),
         );
 
@@ -262,6 +272,7 @@ void main() {
       final ds = await _StubDirectoryService.create(exePath: null, appSupport: '');
       final strategy = DuckstationSaveStrategy(
         ds,
+        ds.testPrefs,
         platform: const PlatformInfo('linux', environment: {'HOME': ''}),
       );
 

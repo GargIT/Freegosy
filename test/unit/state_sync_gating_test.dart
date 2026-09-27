@@ -35,7 +35,8 @@ void main() {
           reason: '$id advertises supportsStateSync but its save strategy is not StateSyncCapable');
     }
 
-    expect(advertising, ['pcsx2'], reason: 'PCSX2 is the only emulator with state sync so far');
+    expect(advertising, unorderedEquals(['duckstation', 'pcsx2']),
+        reason: 'DuckStation and PCSX2 are the emulators with state sync so far');
   });
 
   test('every emulator that can load a state on launch has a StateSyncCapable save strategy', () async {
@@ -63,7 +64,8 @@ void main() {
           reason: '$id advertises supportsStateLoadOnLaunch but its save strategy is not StateSyncCapable');
     }
 
-    expect(advertising, ['pcsx2'], reason: 'PCSX2 is the only emulator that can load a state on launch so far');
+    expect(advertising, unorderedEquals(['duckstation', 'pcsx2']),
+        reason: 'DuckStation and PCSX2 are the emulators that can load a state on launch so far');
   });
 
   test('emulators default to not loading a state on launch', () async {
@@ -71,7 +73,7 @@ void main() {
     final prefs = SharedPreferencesAppPreferences(await SharedPreferences.getInstance());
     final registry = StrategyRegistry(DirectoryService(prefs), prefs);
 
-    expect(registry.getStrategyById('duckstation')!.supportsStateLoadOnLaunch, isFalse);
+    expect(registry.getStrategyById('ppsspp')!.supportsStateLoadOnLaunch, isFalse);
     expect(registry.getStrategyById('retroarch')!.supportsStateLoadOnLaunch, isFalse);
   });
 
@@ -80,7 +82,7 @@ void main() {
     final prefs = SharedPreferencesAppPreferences(await SharedPreferences.getInstance());
     final registry = StrategyRegistry(DirectoryService(prefs), prefs);
 
-    expect(registry.getStrategyById('duckstation')!.supportsStateSync, isFalse);
+    expect(registry.getStrategyById('ppsspp')!.supportsStateSync, isFalse);
     expect(registry.getStrategyById('retroarch')!.supportsStateSync, isFalse);
   });
 }
