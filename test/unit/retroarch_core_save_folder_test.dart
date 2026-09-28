@@ -52,6 +52,7 @@ void main() {
     expect(strategy.coreIdFor(game('psx', 'x.cue')), 'pcsx_rearmed');
     expect(strategy.coreIdFor(game('n64', 'x.z64')), 'mupen64plus_next');
     expect(strategy.coreIdFor(game('nds', 'x.nds')), 'melonds');
+    expect(strategy.coreIdFor(game('turbografx-cd', 'x.cue')), 'mednafen_pce');
     expect(strategy.coreIdFor(game('unknown-platform', 'x.bin')), isNull);
 
     strategy.setLaunchCoreOverride('mednafen_psx_hw_libretro.dll');
@@ -83,6 +84,9 @@ void main() {
       'lynx': 'Beetle Lynx',
       'dos': 'DOSBox-pure',
       'amiga': 'PUAE',
+      'tg16': 'Beetle PCE',
+      'turbografx-cd': 'Beetle PCE',
+      'supergrafx': 'Beetle PCE',
     };
     for (final MapEntry(key: slug, value: folder) in expected.entries) {
       final g = game(slug, 'Some Game.bin');

@@ -439,8 +439,9 @@ const Map<String, EmulatorBiosSpec> kBiosRegistry = {
     ],
   ),
 
-  // ── PC Engine / CD (Beetle PCE FAST via RetroArch) ──────────────
-  'beetle_pce_fast': EmulatorBiosSpec(
+  // ── PC Engine / CD (Beetle PCE via RetroArch) ───────────────────
+  // Keyed by the platform's default core, which FirmwareService looks up.
+  'mednafen_pce': EmulatorBiosSpec(
     files: [
       BiosFileSpec(
         fileName: 'syscard3.pce',

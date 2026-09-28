@@ -365,7 +365,7 @@ class DirectoryService {
     'arcade': 'arcade', 'mame': 'arcade',
     // NEC
     'pcengine': 'pcengine', 'tg16': 'pcengine', 'turbografx16': 'pcengine',
-    'turbografx-16': 'pcengine', 'pce': 'pcengine', 'pcenginecd': 'pcengine',
+    'turbografx-16': 'pcengine', 'pce': 'pcengine', 'pcenginecd': 'pcengine', 'turbografx-cd': 'pcengine',
     // Bandai
     'wonderswan': 'wonderswan', 'wonderswancolor': 'wonderswan',
     // PC

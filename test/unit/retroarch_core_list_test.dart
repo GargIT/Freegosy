@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:freegosy/core/emulator/bios_registry.dart';
 import 'package:freegosy/core/emulator/retroarch_core_list.dart';
 
 void main() {
@@ -71,6 +72,25 @@ void main() {
       // "amstradcpc"/"amstrad-cpc" aliases that were previously registered.
       expect(getDefaultCoreForSlug('acpc'), isNotNull);
       expect(getDefaultCoreForSlug('acpc'), getDefaultCoreForSlug('amstradcpc'));
+    });
+
+    test('RomM\'s NEC slugs (tg16, turbografx-cd, supergrafx) resolve to Beetle PCE', () {
+      // Issue #120: RomM sends "turbografx-cd" for TurboGrafx-CD / PC Engine
+      // CD games, which no core listed, so the launch failed with "No
+      // Emulator Configured". RomM's own player runs all three on
+      // mednafen_pce.
+      for (final slug in ['tg16', 'turbografx-cd', 'supergrafx', 'pcengine', 'pcenginecd']) {
+        expect(getDefaultCoreForSlug(slug), 'mednafen_pce_libretro', reason: slug);
+      }
+    });
+
+    test('the PC Engine CD BIOS is found through the core that runs the CD games', () {
+      // FirmwareService looks a RetroArch platform's BIOS up by its default
+      // core without "_libretro".
+      final core = getDefaultCoreForSlug('turbografx-cd')!.replaceAll('_libretro', '');
+      final spec = getBiosSpecForEmulator(core);
+      expect(spec, isNotNull);
+      expect(spec!.files.map((f) => f.fileName), contains('syscard3.pce'));
     });
 
     test('returns null for unknown platform', () {
