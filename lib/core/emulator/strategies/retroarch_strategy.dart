@@ -11,6 +11,7 @@ import 'package:freegosy/core/platform/platform_info.dart';
 import 'package:freegosy/core/retroachievements/retroachievements_emulator_login.dart';
 import 'package:freegosy/core/romm/romm_models.dart';
 import 'package:freegosy/core/storage/directory_service.dart';
+import 'package:freegosy/core/emulator/platform_slugs.dart';
 
 class MissingRetroArchCoreException implements Exception {
   final String coreName;
@@ -117,6 +118,7 @@ class RetroArchStrategy extends EmulatorStrategy {
   /// Priority: per-platform override -> recommended default.
   String? _getCoreForSlug(String? slug, {String? overrideCoreId}) {
     if (slug == null) return null;
+    slug = canonicalPlatformSlug(slug.toLowerCase());
 
     String baseName = '';
 

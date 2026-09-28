@@ -93,6 +93,24 @@ void main() {
       expect(spec!.files.map((f) => f.fileName), contains('syscard3.pce'));
     });
 
+    test('a platform whose cores are all unmarked gets its first core, not none', () {
+      // With no core, RetroArch was started with the ROM but no -L and tried
+      // its last-loaded core (Vectrex, Jaguar, PC-FX, Neo Geo CD, SG-1000, ...).
+      expect(getDefaultCoreForSlug('pcfx'), 'mednafen_pcfx_libretro');
+      expect(getDefaultCoreForSlug('vectrex'), getCoresForSlug('vectrex').first.id);
+      for (final core in kRetroArchCores) {
+        for (final slug in core.platforms) {
+          expect(getDefaultCoreForSlug(slug), isNotNull, reason: slug);
+        }
+      }
+    });
+
+    test('a recommended core still wins over one listed before it', () {
+      // mednafen_pce_fast is listed first; mednafen_pce is the recommended one.
+      expect(getCoresForSlug('pcengine').first.id, 'mednafen_pce_fast_libretro');
+      expect(getDefaultCoreForSlug('pcengine'), 'mednafen_pce_libretro');
+    });
+
     test('returns null for unknown platform', () {
       expect(getDefaultCoreForSlug('nonexistent_platform'), isNull);
     });

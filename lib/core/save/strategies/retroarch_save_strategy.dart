@@ -14,6 +14,7 @@ import '../save_strategy.dart';
 import 'ps2_save_folders.dart';
 import 'pcsx2_save_strategy.dart';
 import 'package:path/path.dart' as p; // Import path package
+import '../../emulator/platform_slugs.dart';
 
 /// Save strategy for RetroArch emulator.
 ///
@@ -88,6 +89,7 @@ class RetroArchSaveStrategy extends SaveStrategy {
 
   /// Resolves the core info for a slug, checking overrides first.
   _CoreInfo? _getCoreInfo(String slug) {
+    slug = canonicalPlatformSlug(slug);
     debugPrint('[SaveSync] [retroarch] _getCoreInfo: slug="$slug"  ndsCore=$_ndsCore');
 
     // 1. NDS dynamic override (backward compat)

@@ -1,3 +1,5 @@
+import 'package:freegosy/core/emulator/platform_slugs.dart';
+
 enum CoreCategory { recommended, nintendo, sega, sony, arcade, computer, handheld, other }
 
 class RetroArchCore {
@@ -1310,18 +1312,23 @@ const List<RetroArchCore> kRetroArchCores = [
   ),
 ];
 
-/// Returns the default (recommended) core ID for a given platform slug.
+/// Returns the default core ID for a given platform slug: its recommended
+/// core, else the first core listing it. Without a core, RetroArch was
+/// started with no `-L` and tried whichever core it had loaded last.
 String? getDefaultCoreForSlug(String slug) {
+  slug = canonicalPlatformSlug(slug);
+  RetroArchCore? first;
   for (final core in kRetroArchCores) {
-    if (core.isRecommended && core.platforms.contains(slug)) {
-      return core.id;
-    }
+    if (!core.platforms.contains(slug)) continue;
+    if (core.isRecommended) return core.id;
+    first ??= core;
   }
-  return null;
+  return first?.id;
 }
 
 /// Returns all cores that support a given platform slug.
 List<RetroArchCore> getCoresForSlug(String slug) {
+  slug = canonicalPlatformSlug(slug);
   return kRetroArchCores.where((c) => c.platforms.contains(slug)).toList();
 }
 
