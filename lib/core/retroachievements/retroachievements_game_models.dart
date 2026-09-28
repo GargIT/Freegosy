@@ -71,7 +71,10 @@ class RetroAchievement {
 
   /// Parses an entry from the RA Web API's `Achievements` map.
   factory RetroAchievement.fromJson(Map<String, dynamic> json) {
-    final type = json['type']?.toString();
+    // The live API keys this PascalCase like every other field in the map
+    // (verified against RAWeb's current source), unlike the lowercase
+    // `type` the public docs' example shows.
+    final type = json['Type']?.toString();
     return RetroAchievement(
       id: _int(json['ID']),
       title: json['Title']?.toString() ?? '',

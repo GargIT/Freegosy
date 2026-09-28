@@ -252,9 +252,14 @@ class RetroArchStrategy extends EmulatorStrategy {
       if (login == null) return const [];
       final dir = await getApplicationSupportDirectory();
       final file = io.File(p.join(dir.path, 'retroarch_achievements.cfg'));
+      // Restrict permissions before writing the token, not after — otherwise
+      // it's briefly on disk with the directory's default (often world-readable)
+      // permissions.
+      if (!platform.isWindows) {
+        await file.writeAsString('', flush: true);
+        await io.Process.run('chmod', ['600', file.path]);
+      }
       await file.writeAsString(login.toRetroArchConfig(), flush: true);
-      // The file holds the RA token; keep it private to the user.
-      if (!platform.isWindows) await io.Process.run('chmod', ['600', file.path]);
       return ['--appendconfig', file.path];
     } catch (e) {
       debugPrint('[RetroArch] Skipping RetroAchievements login: $e');

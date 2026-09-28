@@ -65,7 +65,10 @@ class RetroAchievementsService {
 
       return RetroAchievementsProfile.fromJson(data);
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
+      // 401/403 is a rejected Web API key; 404 is API_GetUserSummary.php's
+      // response for a username it doesn't recognize.
+      final status = e.response?.statusCode;
+      if (status == 401 || status == 403 || status == 404) {
         throw const RetroAchievementsAuthException('Invalid username or Web API key.');
       }
       debugPrint('[RetroAchievements] fetchProfile network error: $e');
@@ -92,6 +95,9 @@ class RetroAchievementsService {
         'u': credentials.username,
         'y': credentials.webApiKey,
         'g': gameId,
+        // Without this, RA omits HighestAwardKind/HighestAwardDate entirely,
+        // so the Beaten/Completed/Mastered chip would never show.
+        'a': 1,
       });
 
       final data = response.data;

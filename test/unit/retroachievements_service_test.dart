@@ -93,6 +93,26 @@ void main() {
       );
     });
 
+    test('throws RetroAchievementsAuthException for a 404 (username not found)', () async {
+      dioAdapter.onGet(
+        '/API_GetUserSummary.php',
+        (server) => server.reply(404, {'ID': null, 'User': testUsername}),
+        queryParameters: {
+          'u': testUsername,
+          'y': testApiKey,
+          'g': 0,
+          'a': 0,
+        },
+      );
+
+      expect(
+        () => service.fetchProfile(
+          const RetroAchievementsCredentials(username: testUsername, webApiKey: testApiKey),
+        ),
+        throwsA(isA<RetroAchievementsAuthException>()),
+      );
+    });
+
     test('throws RetroAchievementsAuthException without making a request when credentials are empty', () async {
       expect(
         () => service.fetchProfile(const RetroAchievementsCredentials(username: '', webApiKey: '')),
@@ -141,7 +161,7 @@ void main() {
               'Points': 5,
               'BadgeName': '222',
               'DisplayOrder': 2,
-              'type': 'progression',
+              'Type': 'progression',
               'NumAwarded': 100,
               'NumAwardedHardcore': 40,
             },
@@ -152,13 +172,13 @@ void main() {
               'Points': 3,
               'BadgeName': '111',
               'DisplayOrder': 1,
-              'type': null,
+              'Type': null,
               'DateEarned': '2016-03-12 17:47:29',
               'DateEarnedHardcore': '2016-03-12 17:47:29',
             },
           },
         }),
-        queryParameters: {'u': testUsername, 'y': testApiKey, 'g': 1},
+        queryParameters: {'u': testUsername, 'y': testApiKey, 'g': 1, 'a': 1},
       );
 
       final progress = await service.fetchGameProgress(credentials, 1);
@@ -184,7 +204,7 @@ void main() {
       dioAdapter.onGet(
         '/API_GetGameInfoAndUserProgress.php',
         (server) => server.reply(200, {'ID': 5, 'Title': 'Empty', 'Achievements': [], 'HighestAwardKind': null}),
-        queryParameters: {'u': testUsername, 'y': testApiKey, 'g': 5},
+        queryParameters: {'u': testUsername, 'y': testApiKey, 'g': 5, 'a': 1},
       );
 
       final progress = await service.fetchGameProgress(credentials, 5);
@@ -197,7 +217,7 @@ void main() {
       dioAdapter.onGet(
         '/API_GetGameInfoAndUserProgress.php',
         (server) => server.reply(401, {'error': 'Unauthorized'}),
-        queryParameters: {'u': testUsername, 'y': testApiKey, 'g': 1},
+        queryParameters: {'u': testUsername, 'y': testApiKey, 'g': 1, 'a': 1},
       );
 
       expect(() => service.fetchGameProgress(credentials, 1), throwsA(isA<RetroAchievementsAuthException>()));
@@ -297,7 +317,7 @@ void main() {
       dioAdapter.onGet(
         '/API_GetGameInfoAndUserProgress.php',
         (server) => server.reply(200, {}),
-        queryParameters: {'u': testUsername, 'y': testApiKey, 'g': 3},
+        queryParameters: {'u': testUsername, 'y': testApiKey, 'g': 3, 'a': 1},
       );
       expect(
         () => service.fetchGameProgress(
