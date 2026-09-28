@@ -191,6 +191,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Disconnect'));
       await tester.tap(find.text('Disconnect'));
+      // Disconnect now does real dart:io work (deleting the RetroArch RA
+      // config file), which isn't tied to Flutter's frame scheduler the way
+      // in-memory prefs/secure-storage writes are — pumpAndSettle alone can
+      // return before it's done. runAsync lets it actually complete first.
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
       await tester.pumpAndSettle();
 
       expect(prefs.values, isEmpty);
