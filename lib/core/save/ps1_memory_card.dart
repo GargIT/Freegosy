@@ -48,6 +48,12 @@ class Ps1MemoryCard {
   /// Data blocks not used by a save (free or deleted).
   int get freeBlocks => _freeBlockList(_bytes).length;
 
+  /// A quick check that [bytes] is a raw PS1 card: 128 KB starting with `MC`.
+  /// This is the format of DuckStation's `.mcd` and of a RetroArch PS1 core's
+  /// `.srm` alike. [parse] checks the rest.
+  static bool looksLikeCard(Uint8List bytes) =>
+      bytes.length == size && bytes[0] == 0x4D && bytes[1] == 0x43;
+
   /// Reads and checks [bytes]: the size, the `MC` header, and every save's
   /// block chain (no loops, only linked in-use blocks, the size it
   /// declares). Throws [FormatException] for anything else, so a card that

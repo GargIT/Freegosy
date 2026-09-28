@@ -105,7 +105,7 @@ The other rows follow from the formats and the clients' code.
 | RetroArch (`.srm`) → DuckStation | ✅ verified | A 128 KB `.srm` with the `MC` header is taken as the port-1 card. |
 | RetroArch ↔ RetroArch, RetroArch ↔ Argosy | ✅ | The same `<content>.srm` everywhere. |
 | Argosy → DuckStation | ✅ | As RetroArch → DuckStation. |
-| Older `.mcd` uploads (DuckStation before the `.srm` name, or other clients' `<serial>_1.mcd`) → RetroArch (Freegosy) | ❌ | The RetroArch strategy writes a `.mcd` under its own name; the core never opens it. |
+| Older `.mcd` uploads (DuckStation before the `.srm` name, or other clients' `<serial>_1.mcd`) → RetroArch (Freegosy) | ✅ | The RetroArch strategy restores a port-1 PS1 card (`.mcd`, 128 KB, `MC` header) as the game's `<content>.srm`. A card for another port keeps its name, which the core doesn't open by default. An old whole shared card (`shared_card_1.mcd`) lands with every game's saves on it; the game only sees its own. |
 | A RetroArch core set to serial / shared / Mednafen cards → anywhere | ⚠️ | The RetroArch strategy only finds `<content>.srm`-style files, so those cards are never uploaded. |
 
 ### Gaps and recommendations
@@ -114,10 +114,11 @@ The other rows follow from the formats and the clients' code.
    bytes under the name every RetroArch core, Argosy and RomM's in-browser
    player expect. Other ports keep `<name>_N.mcd` (in a zip with the `.srm`).
    DuckStation's own restore accepts both names.
-2. **To do (RetroArch): restore a PS1 `.mcd` as `<content>.srm`**, when it is a
-   128 KB `MC` card for port 1 (`_1.mcd`, no port, or a `shared_card_1`
-   name). Needed for `.mcd` saves already on RomM and for other clients'
-   serial/title cards.
+2. **Done: RetroArch restores a PS1 `.mcd` as `<content>.srm`**, when it is a
+   128 KB `MC` card for port 1 (`_1.mcd`, `mcd1` / `card1`, `shared_card_1`,
+   or no port in the name), alone or in a zip
+   (`RetroArchSaveStrategy.isPs1Port1Card`). This covers `.mcd` saves already
+   on RomM and other clients' serial/title cards.
 3. **Done (RetroArch, every platform): a stricter save match** (#116). A save
    belongs to the game when it is the ROM name followed by an extension, or
    else has the same title (every word, numbers included; case, punctuation,

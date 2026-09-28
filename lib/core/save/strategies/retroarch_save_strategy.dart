@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../platform/platform_info.dart';
 import '../../romm/romm_models.dart';
 import '../../storage/directory_service.dart';
+import '../ps1_memory_card.dart';
 import '../save_strategy.dart';
 import 'package:path/path.dart' as p; // Import path package
 
@@ -732,6 +733,24 @@ class RetroArchSaveStrategy extends SaveStrategy {
     return finalResult;
   }
 
+  /// Whether a downloaded [fileName] is a PS1 memory card for port 1 that the
+  /// core should open as the game's `<content>.srm`: every RetroArch PS1 core
+  /// keeps card 1 there by default, and a raw `.mcd` card is the same format.
+  /// Covers DuckStation's cards (`<name>_1.mcd`, shared `shared_card_1.mcd`,
+  /// `mcd1.mcd`), PCSX-ReARMed's `<serial>_1.mcd` / `pcsx-card1.mcd`, and a
+  /// `.mcd` with no port in its name. Cards for other ports keep their names.
+  @visibleForTesting
+  static bool isPs1Port1Card(String slug, String fileName, List<int> bytes) {
+    if (!_ps1Slugs.contains(slug)) return false;
+    final base = p.basename(fileName).toLowerCase();
+    if (!base.endsWith('.mcd')) return false;
+    if (!Ps1MemoryCard.looksLikeCard(bytes is Uint8List ? bytes : Uint8List.fromList(bytes))) return false;
+    final port = RegExp(r'(?:_|^mcd|card)(\d+)\.mcd$').firstMatch(base)?.group(1);
+    return port == null || int.parse(port) == 1;
+  }
+
+  static const _ps1Slugs = {'psx', 'ps1', 'playstation'};
+
   @override
   Future<bool> restoreSave(Game game, String destPath, Uint8List data, String filename) async {
     try {
@@ -773,6 +792,8 @@ class RetroArchSaveStrategy extends SaveStrategy {
           String targetFilename = file.name;
           if (!isFileState && file.name.toLowerCase().endsWith('.sav')) {
             targetFilename = '${p.basenameWithoutExtension(file.name)}.srm';
+          } else if (!isFileState && isPs1Port1Card(slug, file.name, file.content)) {
+            targetFilename = '${getRomStem(game)}.srm';
           }
 
           final targetPath = p.normalize(p.join(fileTargetDir, targetFilename));
@@ -813,6 +834,8 @@ class RetroArchSaveStrategy extends SaveStrategy {
       String targetFilename = filename;
       if (!isState && filename.toLowerCase().endsWith('.sav')) {
         targetFilename = '${p.basenameWithoutExtension(filename)}.srm';
+      } else if (!isState && isPs1Port1Card(slug, filename, data)) {
+        targetFilename = '${getRomStem(game)}.srm';
       }
 
       final targetPath = p.normalize(p.join(targetDir, targetFilename));
