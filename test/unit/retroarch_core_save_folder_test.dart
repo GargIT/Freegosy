@@ -62,11 +62,14 @@ void main() {
     final n64 = Directory(p.join(saveRoot, 'Mupen64Plus-Next'))..createSync();
     File(p.join(n64.path, 'Wipeout 64 (Europe).srm')).writeAsBytesSync([1]);
 
-    final ps2 = game('ps2', 'Burnout 3 - Takedown (USA).iso');
-    expect(await strategy.getSaveDir(ps2, romPath(ps2.fsName!)), p.join(saveRoot, 'LRPS2'));
+    // (Seen with PS2 memory cards, which now go onto LRPS2's own cards; any
+    // platform whose core folder doesn't exist yet had the same problem.)
+    final nes = game('nes', 'Castlevania (USA).nes');
+    expect(await strategy.getSaveDir(nes, romPath(nes.fsName!)), p.join(saveRoot, 'FCEUmm'));
 
-    expect(await strategy.restoreSave(ps2, romPath(ps2.fsName!), Uint8List.fromList([1, 2, 3]), 'Mcd001.ps2'), isTrue);
-    expect(File(p.join(saveRoot, 'LRPS2', 'Mcd001.ps2')).existsSync(), isTrue);
+    expect(await strategy.restoreSave(nes, romPath(nes.fsName!), Uint8List.fromList([1, 2, 3]), 'Castlevania (USA).srm'),
+        isTrue);
+    expect(File(p.join(saveRoot, 'FCEUmm', 'Castlevania (USA).srm')).existsSync(), isTrue);
     expect(n64.listSync().map((e) => p.basename(e.path)), ['Wipeout 64 (Europe).srm']);
   });
 

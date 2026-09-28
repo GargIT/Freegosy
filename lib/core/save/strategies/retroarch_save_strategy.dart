@@ -1,12 +1,18 @@
 import 'dart:io' as io;
+import 'dart:isolate';
 import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../disc/serial_extraction_service.dart';
 import '../../platform/platform_info.dart';
 import '../../romm/romm_models.dart';
+import '../../storage/app_preferences.dart';
 import '../../storage/directory_service.dart';
 import '../ps1_memory_card.dart';
+import '../ps2_memory_card.dart';
 import '../save_strategy.dart';
+import 'lrps2_memory_cards.dart';
+import 'pcsx2_save_strategy.dart';
 import 'package:path/path.dart' as p; // Import path package
 
 /// Save strategy for RetroArch emulator.
@@ -31,12 +37,27 @@ class RetroArchSaveStrategy extends SaveStrategy {
   /// Cached EmuDeck-for-Windows RetroArch root, once detected.
   String? _cachedEmuDeckWindowsRoot;
 
+  /// The folder of the retroarch.cfg in use, and the `system_directory` /
+  /// `rgui_config_directory` it sets (null: RetroArch's default).
+  String? _cachedConfigDir;
+  String? _cachedSystemDir;
+  String? _cachedCoreOptionsDir;
+
+  final SerialExtractionService? _serials;
+
   // Test-only override to skip reading the real retroarch.cfg.
   @visibleForTesting
   bool skipConfigRead = false;
 
-  RetroArchSaveStrategy(this._directoryService, {PlatformInfo? platform})
-      : _platform = platform ?? PlatformInfo.current;
+  /// Test-only: the PS2 serial of a ROM, instead of reading the disc.
+  @visibleForTesting
+  Future<String?> Function(String romPath)? ps2SerialOverride;
+
+  RetroArchSaveStrategy(this._directoryService,
+      {PlatformInfo? platform, AppPreferences? prefs, SerialExtractionService? serialExtractionService})
+      : _platform = platform ?? PlatformInfo.current,
+        _serials = serialExtractionService ??
+            (prefs == null ? null : SerialExtractionService(_directoryService, prefs, platform: platform));
 
   /// The core [game]'s saves come from, as RomM and other clients name it:
   /// its id without `_libretro` (e.g. `pcsx_rearmed`), or null when unknown.
@@ -311,6 +332,8 @@ class RetroArchSaveStrategy extends SaveStrategy {
     debugPrint('[SaveSync] [retroarch] _readConfigSaveRoot candidates=${candidates.length}: ${candidates.map((c) => p.basename(p.dirname(c))).join(', ')}');
 
     final savefileDirRe = RegExp(r'^\s*savefile_directory\s*=\s*"([^"]*)"');
+    final systemDirRe = RegExp(r'^\s*system_directory\s*=\s*"([^"]*)"');
+    final coreOptionsDirRe = RegExp(r'^\s*rgui_config_directory\s*=\s*"([^"]*)"');
     final boolRe = RegExp(r'^\s*(sort_savefiles_enable|sort_savefiles_by_content_enable|savefiles_in_content_dir)\s*=\s*"?(true|false)"?');
     final libretroPathRe = RegExp(r'^\s*libretro_path\s*=\s*"([^"]*)"');
 
@@ -323,7 +346,14 @@ class RetroArchSaveStrategy extends SaveStrategy {
       debugPrint('[SaveSync] [retroarch] _readConfigSaveRoot reading: $cfgPath');
       try {
         final lines = await cfgFile.readAsLines();
+        final cfgDir = p.dirname(cfgPath);
+        _cachedConfigDir = cfgDir;
         for (final line in lines) {
+          final systemMatch = systemDirRe.firstMatch(line);
+          if (systemMatch != null) _cachedSystemDir = _configPath(systemMatch.group(1)!, cfgDir);
+          final optionsMatch = coreOptionsDirRe.firstMatch(line);
+          if (optionsMatch != null) _cachedCoreOptionsDir = _configPath(optionsMatch.group(1)!, cfgDir);
+
           final saveMatch = savefileDirRe.firstMatch(line);
           if (saveMatch != null) {
             var dir = saveMatch.group(1)!;
@@ -434,6 +464,218 @@ class RetroArchSaveStrategy extends SaveStrategy {
     }
     return null;
   }
+
+  /// A directory setting from retroarch.cfg as a path: `:` stands for the
+  /// folder of the config (a portable install), `~` for the home folder;
+  /// empty or `default` means RetroArch's default (null).
+  String? _configPath(String value, String cfgDir) {
+    var v = value.trim();
+    if (v.isEmpty || v == 'default') return null;
+    if (v.startsWith(':')) return p.normalize(p.join(cfgDir, v.substring(1).replaceFirst(RegExp(r'^[\\/]+'), '')));
+    if (v.startsWith('~')) {
+      final home = _platform.environment['HOME'] ?? _platform.environment['USERPROFILE'];
+      if (home != null) v = v.replaceFirst('~', home);
+    }
+    return v;
+  }
+
+  // ─── LRPS2 (PS2) memory cards ─────────────────────────────────────────
+
+  static const _ps2Slugs = {'ps2', 'playstation-2', 'playstation2'};
+
+  bool _isLrps2(String slug) => _ps2Slugs.contains(slug) && _getCoreInfo(slug)?.coreName == 'pcsx2_libretro';
+
+  /// RetroArch's own folder: where its retroarch.cfg is, else above the saves.
+  Future<String> _retroArchDir() async {
+    await _readConfigSaveRoot();
+    return _cachedConfigDir ?? p.dirname(await _resolveSaveRoot());
+  }
+
+  /// LRPS2's memory cards for [romPath]: its two shared cards in the system
+  /// folder, or the game's own card in the save folder when *Shared Memory
+  /// Cards* is off (see [Lrps2MemoryCards]).
+  Future<({List<io.File> cards, bool shared})> _lrps2Cards(Game game, String romPath) async {
+    final raDir = await _retroArchDir();
+    final optionsDir = _cachedCoreOptionsDir ?? p.join(raDir, 'config');
+    final optionFiles = <String>[];
+    for (final path in [
+      p.join(optionsDir, 'LRPS2', '${p.basenameWithoutExtension(romPath)}.opt'),
+      p.join(optionsDir, 'LRPS2', '${p.basename(p.dirname(romPath))}.opt'),
+      p.join(optionsDir, 'LRPS2', 'LRPS2.opt'),
+      p.join(raDir, 'retroarch-core-options.cfg'),
+    ]) {
+      final f = io.File(path);
+      if (await f.exists()) optionFiles.add(await f.readAsString());
+    }
+    if (Lrps2MemoryCards.usesSharedCards(optionFiles)) {
+      final memcards = p.join(_cachedSystemDir ?? p.join(raDir, 'system'), 'pcsx2', 'memcards');
+      return (cards: [io.File(p.join(memcards, 'Mcd001.ps2')), io.File(p.join(memcards, 'Mcd002.ps2'))], shared: true);
+    }
+    final saveDir = await getSaveDir(game, romPath) ?? p.join(await _resolveSaveRoot(), 'LRPS2');
+    return (cards: [io.File(p.join(saveDir, '${p.basenameWithoutExtension(romPath)}.ps2'))], shared: false);
+  }
+
+  Future<String?> _ps2Serial(String romPath) async {
+    if (ps2SerialOverride != null) return ps2SerialOverride!(romPath);
+    return _serials?.extractSerial(
+        romPath: romPath, bootLinePattern: Pcsx2SaveStrategy.bootLinePattern, chdmanCandidates: const []);
+  }
+
+  /// Which saves on LRPS2's cards are [romPath]'s: those named after its
+  /// serial; every save on a per-game card when the serial is unknown. Null
+  /// when it can't be told (shared cards, serial unknown).
+  Future<bool Function(String)?> _lrps2SavesOf(String romPath, bool shared) async {
+    final serial = await _ps2Serial(romPath);
+    if (serial != null) return (name) => Lrps2MemoryCards.isSaveOf(name, serial);
+    return shared ? null : (_) => true;
+  }
+
+  static const _lrps2NoSerial = "Freegosy couldn't read this PS2 game's serial (e.g. SLUS-20851), which is how it "
+      "tells this game's saves from the others on LRPS2's shared memory cards, so its saves weren't synced.";
+
+  String get _lrps2TempRoot => p.join(io.Directory.systemTemp.path, 'freegosy_lrps2');
+
+  /// This game's saves on LRPS2's cards, written out as save folders to
+  /// upload (`BASLUS-20851AC5/…`). Nothing when no card changed since
+  /// [sessionStart].
+  Future<List<io.File>> _lrps2SaveFolders(Game game, String romPath, DateTime? sessionStart) async {
+    final setup = await _lrps2Cards(game, romPath);
+    final existing = [for (final c in setup.cards) if (await c.exists()) c];
+    if (existing.isEmpty) return const [];
+    if (sessionStart != null) {
+      final since = sessionStart.subtract(const Duration(seconds: 2));
+      var changed = false;
+      for (final c in existing) {
+        if (!(await c.stat()).modified.isBefore(since)) changed = true;
+      }
+      if (!changed) return const [];
+    }
+    final belongs = await _lrps2SavesOf(romPath, setup.shared);
+    if (belongs == null) {
+      debugPrint("[SaveSync] [retroarch] LRPS2: serial unknown — can't tell this game's saves on the shared cards");
+      return const [];
+    }
+    final outDir = io.Directory(p.join(_lrps2TempRoot, game.id));
+    if (await outDir.exists()) await outDir.delete(recursive: true);
+    await outDir.create(recursive: true);
+    final folders = <io.File>[];
+    for (final card in existing) {
+      final bytes = await card.readAsBytes();
+      if (Ps2MemoryCard.isUnformatted(bytes)) continue;
+      final List<Ps2CardSave> saves;
+      try {
+        saves = await Isolate.run(() => Ps2MemoryCard.parse(bytes).saves.where((s) => belongs(s.name)).toList());
+      } on FormatException catch (e) {
+        debugPrint('[SaveSync] [retroarch] LRPS2: ${card.path} not readable, skipped: $e');
+        continue;
+      }
+      for (final save in saves) {
+        final dir = io.Directory(p.join(outDir.path, save.name));
+        if (await dir.exists()) continue; // the same save on both cards: the first card's
+        await dir.create();
+        for (final f in save.files) {
+          await io.File(p.join(dir.path, f.name)).writeAsBytes(f.data);
+        }
+        folders.add(io.File(dir.path));
+      }
+    }
+    debugPrint('[SaveSync] [retroarch] LRPS2: ${folders.length} save folder(s) of this game: '
+        '${folders.map((f) => p.basename(f.path)).toList()}');
+    return folders;
+  }
+
+  /// Puts the PS2 saves in a downloaded save onto LRPS2's card, replacing
+  /// this game's and leaving every other game's as it is: the card that
+  /// already holds this game's saves (else the first), after a `.bak`,
+  /// written to a temporary file and swapped in.
+  Future<void> _restoreLrps2(Game game, String romPath, Uint8List data, String filename) async {
+    final List<Ps2CardSave> incoming;
+    try {
+      incoming = Lrps2MemoryCards.savesFromUpload(data, filename);
+    } on FormatException catch (e) {
+      throw SaveSyncNotPossibleException(
+          "The PS2 memory card from RomM ($filename) isn't one Freegosy can read ($e). Nothing was changed.");
+    }
+    final setup = await _lrps2Cards(game, romPath);
+    final belongs = await _lrps2SavesOf(romPath, setup.shared);
+    if (belongs == null) throw SaveSyncNotPossibleException(_lrps2NoSerial);
+    final mine = incoming.where((s) => belongs(s.name)).toList();
+    if (mine.isEmpty) {
+      debugPrint('[SaveSync] [retroarch] LRPS2: $filename holds no saves of this game — cards left as they are');
+      return;
+    }
+
+    var target = setup.cards.first;
+    Uint8List? targetBytes;
+    for (final card in setup.cards) {
+      if (!await card.exists()) continue;
+      final bytes = await card.readAsBytes();
+      final holdsGame = await Isolate.run(() {
+        try {
+          return Ps2MemoryCard.parse(bytes).saves.any((s) => belongs(s.name));
+        } on FormatException {
+          return false;
+        }
+      });
+      if (holdsGame || card.path == setup.cards.first.path) {
+        target = card;
+        targetBytes = bytes;
+        if (holdsGame) break;
+      }
+    }
+
+    final Uint8List merged;
+    try {
+      final source = targetBytes;
+      merged = await Isolate.run(() => Lrps2MemoryCards.merge(source, mine, belongs));
+    } on FormatException catch (e) {
+      throw SaveSyncNotPossibleException(
+          "LRPS2's memory card (${p.basename(target.path)}) doesn't look like a PS2 memory card Freegosy can "
+          'safely change ($e), so it was left as it is.');
+    } on Ps2CardFullException catch (e) {
+      throw SaveSyncNotPossibleException(
+          "The save from RomM doesn't fit on LRPS2's memory card (${p.basename(target.path)}) with the saves "
+          'already on it: ${e.needed} KB needed, ${e.capacity} KB on the card. Nothing was changed. Free some '
+          "space in the PS2 BIOS's memory card screen, then pull again.");
+    }
+    if (SaveRestoreGuard.restoreTooLate) {
+      debugPrint('[SaveSync] [retroarch] LRPS2: RetroArch has started without this pull — ${target.path} left as it is');
+      return;
+    }
+    await target.parent.create(recursive: true);
+    if (await target.exists()) await backupSave(target.path);
+    final temp = io.File('${target.path}.freegosy_tmp');
+    await temp.writeAsBytes(merged, flush: true);
+    await temp.rename(target.path);
+    debugPrint('[SaveSync] [retroarch] LRPS2: put ${mine.map((s) => s.name).toList()} on ${target.path}');
+  }
+
+  @override
+  Future<String?> saveSyncBlockedReason(Game game, String romPath) async {
+    final slug = game.platformSlug?.toLowerCase() ?? '';
+    if (!_isLrps2(slug)) return null;
+    try {
+      final setup = await _lrps2Cards(game, romPath);
+      return await _lrps2SavesOf(romPath, setup.shared) == null ? _lrps2NoSerial : null;
+    } catch (e) {
+      debugPrint('[SaveSync] [retroarch] LRPS2: cannot tell whether saves can be synced: $e');
+      return null;
+    }
+  }
+
+  /// LRPS2 opens its shared cards when a game starts, so a pull that lands
+  /// after that would be overwritten when the game saves.
+  @override
+  Future<bool> pullMustFinishBeforeLaunch(Game game, String romPath) async {
+    final slug = game.platformSlug?.toLowerCase() ?? '';
+    if (!_isLrps2(slug)) return false;
+    try {
+      return (await _lrps2Cards(game, romPath)).shared;
+    } catch (_) {
+      return false;
+    }
+  }
+
 
   String _getRetroArchExe() {
     if (_platform.isWindows) return 'RetroArch.exe';
@@ -594,7 +836,17 @@ class RetroArchSaveStrategy extends SaveStrategy {
   @override
   Future<List<io.File>> getSaveFiles(Game game, String romPath, {DateTime? sessionStart, String syncMode = 'both'}) async {
     final map = await getSaveFilesWithScreenshots(game, romPath, sessionStart: sessionStart, syncMode: syncMode);
-    return map.keys.toList();
+    final slug = game.platformSlug?.toLowerCase() ?? '';
+    if (!_isLrps2(slug)) return map.keys.toList();
+    // Local backups keep LRPS2's whole cards, not the save folders the sync
+    // takes out of them.
+    final files = [for (final f in map.keys) if (!p.isWithin(_lrps2TempRoot, f.path)) f];
+    if (files.length != map.length) {
+      for (final card in (await _lrps2Cards(game, romPath)).cards) {
+        if (await card.exists()) files.add(card);
+      }
+    }
+    return files;
   }
 
   @override
@@ -653,6 +905,10 @@ class RetroArchSaveStrategy extends SaveStrategy {
             debugPrint('[SaveSync] [retroarch] getSaveFilesWithScreenshots PSP dir has files');
           }
         }
+      }
+    } else if (_isLrps2(slug)) {
+      if (syncMode == 'saves' || syncMode == 'both') {
+        filesToCheck.addAll(await _lrps2SaveFolders(game, romPath, sessionStart));
       }
     } else {
       if (syncMode == 'saves' || syncMode == 'both') {
@@ -767,6 +1023,13 @@ class RetroArchSaveStrategy extends SaveStrategy {
 
       if (coreInfo == null) return false;
 
+      // LRPS2: the saves go onto its memory card; states below as usual.
+      final lrps2 = _isLrps2(slug);
+      if (lrps2 && !filename.contains('.state')) {
+        await _restoreLrps2(game, destPath, data, filename);
+        if (!filename.toLowerCase().endsWith('.zip')) return true;
+      }
+
       if (filename.toLowerCase().endsWith('.zip')) {
         final archive = ZipDecoder().decodeBytes(data);
         for (final file in archive) {
@@ -774,6 +1037,7 @@ class RetroArchSaveStrategy extends SaveStrategy {
           if (file.name == 'freegosy_sync.txt') continue;
 
           final isFileState = file.name.contains('.state');
+          if (lrps2 && !isFileState) continue;
           String? fileTargetDir;
           if (isFileState) {
             if (_platform.isLinux) {
@@ -850,7 +1114,10 @@ class RetroArchSaveStrategy extends SaveStrategy {
       await backupSave(targetPath); // Backup existing file
       await io.File(targetPath).writeAsBytes(data);
       return true;
+    } on SaveSyncNotPossibleException {
+      rethrow;
     } catch (e) {
+      debugPrint('[SaveSync] [retroarch] restoreSave failed: $e');
       return false;
     }
   }
