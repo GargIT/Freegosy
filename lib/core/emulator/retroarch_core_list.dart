@@ -451,13 +451,15 @@ const List<RetroArchCore> kRetroArchCores = [
   RetroArchCore(
     id: 'mednafen_pce_fast_libretro',
     displayName: 'Mednafen PCE Fast',
-    platforms: ['pcengine', 'pcenginecd', 'tg16', 'turbografx16', 'turbografx-16'],
+    platforms: ['pcengine', 'pcenginecd', 'tg16', 'turbografx16', 'turbografx-16', 'turbografx-cd'],
     category: CoreCategory.sony,
   ),
   RetroArchCore(
     id: 'mednafen_pce_libretro',
     displayName: 'Mednafen PCE',
-    platforms: ['pcengine', 'pcenginecd', 'tg16', 'turbografx16', 'turbografx-16'],
+    // turbografx-cd and supergrafx are RomM's slugs; its own player runs
+    // both on this core, which emulates the SuperGrafx too.
+    platforms: ['pcengine', 'pcenginecd', 'tg16', 'turbografx16', 'turbografx-16', 'turbografx-cd', 'supergrafx'],
     category: CoreCategory.sony,
     isRecommended: true,
     description: 'Accurate PC Engine / TurboGrafx-16',

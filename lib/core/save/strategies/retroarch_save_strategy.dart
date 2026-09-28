@@ -242,7 +242,11 @@ class RetroArchSaveStrategy extends SaveStrategy {
     // NEC
     'pcengine':  _CoreInfo('mednafen_pce_libretro',    'Beetle PCE',         'Beetle PCE'),
     'pcenginecd': _CoreInfo('mednafen_pce_libretro',   'Beetle PCE',         'Beetle PCE'),
-    'supergrafx': _CoreInfo('mednafen_supergrafx_libretro', 'Beetle SuperGrafx', 'Beetle SuperGrafx'),
+    'tg16':      _CoreInfo('mednafen_pce_libretro',    'Beetle PCE',         'Beetle PCE'),
+    'turbografx16': _CoreInfo('mednafen_pce_libretro', 'Beetle PCE',         'Beetle PCE'),
+    'turbografx-16': _CoreInfo('mednafen_pce_libretro', 'Beetle PCE',        'Beetle PCE'),
+    'turbografx-cd': _CoreInfo('mednafen_pce_libretro', 'Beetle PCE',        'Beetle PCE'),
+    'supergrafx': _CoreInfo('mednafen_pce_libretro',   'Beetle PCE',         'Beetle PCE'),
     'pcfx':      _CoreInfo('mednafen_pcfx_libretro',   'Beetle PC-FX',       'Beetle PC-FX'),
     // Bandai
     'wonderswan': _CoreInfo('mednafen_wswan_libretro', 'Beetle WonderSwan',  'Beetle WonderSwan'),
