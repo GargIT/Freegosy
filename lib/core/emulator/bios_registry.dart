@@ -63,7 +63,7 @@ class EmulatorBiosSpec {
 /// platform's BIOS files are listed separately within the same emulator entry.
 const Map<String, EmulatorBiosSpec> kBiosRegistry = {
   // ── PlayStation 1 (Beetle PSX HW via RetroArch) ──────────────────
-  'beetle_psx_hw': EmulatorBiosSpec(
+  'mednafen_psx_hw': EmulatorBiosSpec(
     hasHleBios: true, // OpenBIOS used if no BIOS provided
     files: [
       BiosFileSpec(
@@ -178,7 +178,7 @@ const Map<String, EmulatorBiosSpec> kBiosRegistry = {
   ),
 
   // ── Sega Saturn (Beetle Saturn via RetroArch) ───────────────────
-  'beetle_saturn': EmulatorBiosSpec(
+  'mednafen_saturn': EmulatorBiosSpec(
     files: [
       BiosFileSpec(
         fileName: 'sega_101.bin',
@@ -428,7 +428,7 @@ const Map<String, EmulatorBiosSpec> kBiosRegistry = {
   ),
 
   // ── PC-FX (Beetle PC-FX via RetroArch) ──────────────────────────
-  'beetle_pc_fx': EmulatorBiosSpec(
+  'mednafen_pcfx': EmulatorBiosSpec(
     files: [
       BiosFileSpec(
         fileName: 'pcfx.rom',
@@ -439,8 +439,9 @@ const Map<String, EmulatorBiosSpec> kBiosRegistry = {
     ],
   ),
 
-  // ── PC Engine / CD (Beetle PCE FAST via RetroArch) ──────────────
-  'beetle_pce_fast': EmulatorBiosSpec(
+  // ── PC Engine / CD (Beetle PCE via RetroArch) ───────────────────
+  // Keyed by the platform's default core, which FirmwareService looks up.
+  'mednafen_pce': EmulatorBiosSpec(
     files: [
       BiosFileSpec(
         fileName: 'syscard3.pce',
@@ -535,7 +536,7 @@ const Map<String, EmulatorBiosSpec> kBiosRegistry = {
   ),
 
   // ── Lynx (Beetle Lynx via RetroArch) ────────────────────────────
-  'beetle_lynx': EmulatorBiosSpec(
+  'mednafen_lynx': EmulatorBiosSpec(
     hasHleBios: true,
     files: [
       BiosFileSpec(
@@ -558,7 +559,7 @@ const Map<String, EmulatorBiosSpec> kBiosRegistry = {
   ),
 
   // ── Amiga (PUAE via RetroArch) ───────────────────────────────────
-  'puae_libretro': EmulatorBiosSpec(
+  'puae': EmulatorBiosSpec(
     files: [
       BiosFileSpec(
         fileName: 'kick34005.A500',
@@ -587,7 +588,7 @@ const Map<String, EmulatorBiosSpec> kBiosRegistry = {
       ),
     ],
   ),
-  'puae2021_libretro': EmulatorBiosSpec(
+  'puae2021': EmulatorBiosSpec(
     files: [
       BiosFileSpec(
         fileName: 'kick34005.A500',
@@ -738,19 +739,33 @@ const Map<String, EmulatorBiosSpec> kBiosRegistry = {
   ),
 
   // ── PC-98 (Neko Project II Kai via RetroArch) ──────────────────
-  'neko_project_ii_kai': EmulatorBiosSpec(
+  'np2kai': EmulatorBiosSpec(
+    // np2kai_libretro.info: every file is read from system/np2kai/.
+    fallbackSubdirectoryLibretro: 'np2kai',
     files: [
       BiosFileSpec(
-        fileName: 'np2kai/bios/bios.rom',
+        fileName: 'bios.rom',
         requirement: BiosRequirement.required,
         description: 'PC-98 BIOS ROM',
-        subdirectory: 'np2kai/bios',
+        subdirectory: 'np2kai',
       ),
       BiosFileSpec(
-        fileName: 'np2kai/bios/.sound.rom',
+        fileName: 'sound.rom',
         requirement: BiosRequirement.required,
         description: 'PC-98 Sound BIOS ROM',
-        subdirectory: 'np2kai/bios',
+        subdirectory: 'np2kai',
+      ),
+      BiosFileSpec(
+        fileName: 'itf.rom',
+        requirement: BiosRequirement.optional,
+        description: 'PC-98 ITF ROM',
+        subdirectory: 'np2kai',
+      ),
+      BiosFileSpec(
+        fileName: 'font.bmp',
+        requirement: BiosRequirement.optional,
+        description: 'PC-98 font',
+        subdirectory: 'np2kai',
       ),
     ],
   ),
@@ -815,7 +830,7 @@ const Map<String, EmulatorBiosSpec> kBiosRegistry = {
   ),
 
   // ── Amstrad CPC (Caprice32 via RetroArch) ───────────────────────
-  'caprice32': EmulatorBiosSpec(
+  'cap32': EmulatorBiosSpec(
     files: [
       BiosFileSpec(
         fileName: 'cpc464.rom',
@@ -860,7 +875,7 @@ const Map<String, EmulatorBiosSpec> kBiosRegistry = {
   ),
 
   // ── Commodore 64 (VICE via RetroArch) ───────────────────────────
-  'vice': EmulatorBiosSpec(
+  'vice_x64': EmulatorBiosSpec(
     hasHleBios: true,
     files: [], // VICE includes its own ROMs
   ),

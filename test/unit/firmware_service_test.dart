@@ -10,6 +10,9 @@ import 'package:freegosy/core/storage/directory_service.dart';
 import 'package:freegosy/core/emulator/strategy_registry.dart';
 import 'package:freegosy/core/emulator/firmware_service.dart';
 import 'package:freegosy/core/emulator/emulator_strategy.dart';
+import 'package:freegosy/core/emulator/bios_registry.dart';
+import 'package:freegosy/core/emulator/emulator_registry_data.dart';
+import 'package:freegosy/core/emulator/retroarch_core_list.dart';
 
 import 'firmware_service_test.mocks.dart';
 
@@ -206,12 +209,12 @@ void main() {
         firmware: [firmware],
       );
 
-      // beetle_psx_hw has BIOS entries with no subdirectory
-      final mockStrategy = MockEmulatorStrategy('beetle_psx_hw');
+      // mednafen_psx_hw has BIOS entries with no subdirectory
+      final mockStrategy = MockEmulatorStrategy('mednafen_psx_hw');
 
       when(mockRommService.getPlatforms()).thenAnswer((_) async => [platform]);
       when(mockStrategyRegistry.getStrategyForSlug('psx')).thenReturn(mockStrategy);
-      when(mockDirectoryService.getEmulatorBiosDirectory('beetle_psx_hw')).thenAnswer((_) async => biosDir);
+      when(mockDirectoryService.getEmulatorBiosDirectory('mednafen_psx_hw')).thenAnswer((_) async => biosDir);
       when(mockRommService.downloadFirmware(firmware, onProgress: anyNamed('onProgress')))
           .thenAnswer((_) async => Uint8List.fromList([4, 5, 6]));
 
@@ -348,7 +351,7 @@ void main() {
 
       await service.syncAllFirmware();
 
-      // RetroArch resolves default core for 'psx' → 'beetle_psx_hw' → registry has no subdirectory
+      // RetroArch resolves default core for 'psx' → 'mednafen_psx_hw' → registry has no subdirectory
       final correctPath = File(p.join(biosDir, 'scph5501.bin'));
       final wrongPath = File(p.join(biosDir, 'psx', 'bios', 'scph5501.bin'));
 
@@ -401,6 +404,50 @@ void main() {
           reason: 'Should NOT use RomM filePath ps2/bios/');
 
       await tempDir.delete(recursive: true);
+    });
+
+    test('PC-98 (Neko Project II Kai) BIOS goes in np2kai/, where the core reads it', () async {
+      // np2kai_libretro.info: firmware paths are "np2kai/bios.rom",
+      // "np2kai/sound.rom", ... The entry was keyed "neko_project_ii_kai",
+      // which no core is called, so the files landed flat in system/.
+      final tempDir = await Directory.systemTemp.createTemp('firmware_pc98_test');
+      final biosDir = p.join(tempDir.path, 'system');
+      await Directory(biosDir).create();
+
+      final bios = Firmware(id: 9, fileName: 'bios.rom', filePath: 'pc98/bios', fileSizeBytes: 1);
+      final font = Firmware(id: 10, fileName: 'font.bmp', filePath: 'pc98/bios', fileSizeBytes: 1);
+      final platform = Platform(id: 9, name: 'PC-98', slug: 'pc98', firmware: [bios, font]);
+
+      when(mockRommService.getPlatforms()).thenAnswer((_) async => [platform]);
+      when(mockStrategyRegistry.getStrategyForSlug('pc98')).thenReturn(MockEmulatorStrategy('retroarch'));
+      when(mockDirectoryService.getEmulatorBiosDirectory('retroarch')).thenAnswer((_) async => biosDir);
+      when(mockRommService.downloadFirmware(any, onProgress: anyNamed('onProgress')))
+          .thenAnswer((_) async => Uint8List.fromList([1]));
+
+      await service.syncAllFirmware();
+
+      expect(File(p.join(biosDir, 'np2kai', 'bios.rom')).existsSync(), isTrue);
+      expect(File(p.join(biosDir, 'np2kai', 'font.bmp')).existsSync(), isTrue);
+      expect(File(p.join(biosDir, 'bios.rom')).existsSync(), isFalse);
+
+      await tempDir.delete(recursive: true);
+    });
+  });
+
+  group('BIOS registry keys', () {
+    test('every entry is found: keyed by an emulator id or a RetroArch core without _libretro', () {
+      // FirmwareService looks a standalone emulator's entry up by its id and
+      // RetroArch's by the platform's default core ("mednafen_saturn" for
+      // mednafen_saturn_libretro). An entry under any other name is never
+      // used: its subfolders and MD5 checks do nothing.
+      final coreKeys = kRetroArchCores.map((c) => c.id.replaceAll(RegExp(r'_libretro$'), '')).toSet();
+      final emulatorIds = kEmulatorDefinitions.map((e) => e['id'] as String).toSet();
+      // No core or emulator for these in Freegosy yet.
+      const noCoreYet = {'gearcoleco', 'emuscv', 'hatarib'};
+      final unreachable = registeredEmulatorIds
+          .where((k) => !coreKeys.contains(k) && !emulatorIds.contains(k) && !noCoreYet.contains(k))
+          .toList();
+      expect(unreachable, isEmpty);
     });
   });
 }
