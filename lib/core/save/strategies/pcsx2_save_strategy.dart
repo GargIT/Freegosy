@@ -1,4 +1,5 @@
 import 'dart:io' as io;
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
@@ -8,10 +9,12 @@ import '../../platform/platform_info.dart';
 import '../../romm/romm_models.dart';
 import '../../storage/app_preferences.dart';
 import '../../storage/directory_service.dart';
+import '../ps2_memory_card.dart';
 import '../save_state_info.dart';
 import '../save_strategy.dart';
 import '../state_sync_capable.dart';
 import 'pcsx2_state_file.dart';
+import 'ps2_save_folders.dart';
 
 /// Save strategy for PCSX2 (PlayStation 2).
 /// Memcards: {systemDir}/memcards/*.ps2
@@ -380,12 +383,222 @@ class Pcsx2SaveStrategy extends SaveStrategy with StateSyncCapable {
     return normalizedDir.startsWith('${_ps2RegionPrefix(normalizedSerial)}$normalizedSerial');
   }
 
+  // ─── File memory cards (Mcd00N.ps2 images) ────────────────────────────
+  //
+  // A file card holds every game's saves, so it never goes to RomM whole: the
+  // game's saves go up as save folders (see Ps2SaveFolders), the shape folder
+  // cards, LRPS2 and Argosy use, and come back onto the card without
+  // touching the other games' saves.
+
+  String get _fileCardTempRoot => p.join(io.Directory.systemTemp.path, 'freegosy_pcsx2');
+
+  static const _noSerialMessage = "Freegosy couldn't read this PS2 game's serial (e.g. SLUS-20851), which is how "
+      "it tells this game's saves from the others on PCSX2's memory card, so its saves weren't synced.";
+
+  /// PCSX2's memory cards in [memcardsDir]: `.ps2` files (file cards) and
+  /// directories (folder cards), without timestamped backup copies, in name
+  /// order (Mcd001.ps2 first).
+  Future<List<io.FileSystemEntity>> _memcards(String memcardsDir) async {
+    final dir = io.Directory(memcardsDir);
+    if (!await dir.exists()) return const [];
+    final cards = <io.FileSystemEntity>[];
+    await for (final e in dir.list()) {
+      final name = p.basename(e.path);
+      if ((e is io.File || e is io.Directory) && name.toLowerCase().endsWith('.ps2') && !name.contains('[')) {
+        cards.add(e);
+      }
+    }
+    cards.sort((a, b) => p.basename(a.path).toLowerCase().compareTo(p.basename(b.path).toLowerCase()));
+    return cards;
+  }
+
+  Future<String> _memcardsDir() async {
+    final root = await _getSaveRoot();
+    return p.basename(root) == 'saves' ? root : p.join(root, 'memcards');
+  }
+
+  /// What the push uploads: [getSaveFiles], with each file card replaced by
+  /// this game's save folders taken off it. Local backups keep the cards.
+  @override
+  Future<Map<io.File, io.File?>> getSaveFilesWithScreenshots(Game game, String romPath,
+      {DateTime? sessionStart, String syncMode = 'both'}) async {
+    final files = await getSaveFiles(game, romPath, sessionStart: sessionStart, syncMode: syncMode);
+    final fileCards = <io.File>[];
+    final result = <io.File, io.File?>{};
+    for (final f in files) {
+      if (f.path.toLowerCase().endsWith('.ps2') && await io.FileSystemEntity.isFile(f.path)) {
+        fileCards.add(f);
+      } else {
+        result[f] = null;
+      }
+    }
+    if (fileCards.isEmpty) return result;
+
+    final serial = await _extractSerial(romPath);
+    if (serial == null) {
+      debugPrint("[PCSX2]   serial unknown — can't tell this game's saves on the file card(s); not uploading them");
+      return result;
+    }
+    final outDir = io.Directory(p.join(_fileCardTempRoot, game.id));
+    if (await outDir.exists()) await outDir.delete(recursive: true);
+    await outDir.create(recursive: true);
+    for (final card in fileCards) {
+      final bytes = await card.readAsBytes();
+      if (Ps2MemoryCard.isUnformatted(bytes)) continue;
+      final List<Ps2CardSave> saves;
+      try {
+        saves = await Isolate.run(
+            () => Ps2MemoryCard.parse(bytes).saves.where((s) => Ps2SaveFolders.isSaveOf(s.name, serial)).toList());
+      } on FormatException catch (e) {
+        debugPrint('[PCSX2]   ${card.path} is not a card Freegosy can read, skipped: $e');
+        continue;
+      }
+      for (final save in saves) {
+        final dir = io.Directory(p.join(outDir.path, save.name));
+        if (await dir.exists()) continue; // the same save on two cards: the first card's
+        await dir.create();
+        for (final f in save.files) {
+          await io.File(p.join(dir.path, f.name)).writeAsBytes(f.data);
+        }
+        result[io.File(dir.path)] = null;
+      }
+      debugPrint('[PCSX2]   ${card.path}: ${saves.map((s) => s.name).toList()} as save folders');
+    }
+    return result;
+  }
+
+  /// Puts the PS2 saves in a download onto a local memory card where the
+  /// folder-card restore can't: when the card they belong on is a file card,
+  /// or the download is a whole file card. Returns false to leave the
+  /// download to it (save folders into a folder card, per-game folders).
+  Future<bool> _restoreOntoCard(String romPath, String memcardsDir, Uint8List data, String filename) async {
+    final List<Ps2CardSave> incoming;
+    try {
+      incoming = Ps2SaveFolders.savesFromUpload(data, filename);
+    } on FormatException catch (e) {
+      throw SaveSyncNotPossibleException(
+          "The PS2 memory card from RomM ($filename) isn't one Freegosy can read ($e). Nothing was changed.");
+    }
+    if (incoming.isEmpty) return false;
+    final incomingIsCard = Ps2MemoryCard.looksLikeCard(data);
+    final cards = await _memcards(memcardsDir);
+    final serial = await _extractSerial(romPath);
+
+    // The card that already holds this game's saves, else the first one.
+    io.FileSystemEntity? target;
+    if (serial != null) {
+      for (final card in cards) {
+        final bool holds;
+        if (card is io.Directory) {
+          holds = card.listSync().whereType<io.Directory>().any((d) => Ps2SaveFolders.isSaveOf(p.basename(d.path), serial));
+        } else {
+          final bytes = await io.File(card.path).readAsBytes();
+          holds = await Isolate.run(() {
+            try {
+              return Ps2MemoryCard.parse(bytes).saves.any((s) => Ps2SaveFolders.isSaveOf(s.name, serial));
+            } on FormatException {
+              return false;
+            }
+          });
+        }
+        if (holds) {
+          target = card;
+          break;
+        }
+      }
+    }
+    target ??= cards.isEmpty ? null : cards.first;
+
+    if (target == null && !incomingIsCard) return false; // a new folder card, as before
+    if (target is io.Directory && !incomingIsCard) return false;
+    if (serial == null) {
+      if (target == null) return false; // no card here: the whole card, as before
+      throw SaveSyncNotPossibleException(_noSerialMessage);
+    }
+    final mine = incoming.where((s) => Ps2SaveFolders.isSaveOf(s.name, serial)).toList();
+    if (mine.isEmpty) {
+      debugPrint('[PCSX2]   $filename holds no saves of this game — memory cards left as they are');
+      return true;
+    }
+    if (SaveRestoreGuard.restoreTooLate) {
+      debugPrint('[PCSX2]   PCSX2 has started without this pull — memory cards left as they are');
+      return true;
+    }
+
+    if (target is io.Directory) {
+      // A whole file card from RomM onto a folder card: this game's saves as
+      // folders, replacing the game's own; the other folders stay.
+      for (final save in mine) {
+        final dir = io.Directory(p.join(target.path, save.name));
+        if (await dir.exists()) await dir.delete(recursive: true);
+        await dir.create(recursive: true);
+        for (final f in save.files) {
+          await io.File(p.join(dir.path, f.name)).writeAsBytes(f.data);
+        }
+      }
+      debugPrint('[PCSX2]   put ${mine.map((s) => s.name).toList()} into folder card ${target.path}');
+      return true;
+    }
+
+    final card = io.File(target?.path ?? p.join(memcardsDir, 'Mcd001.ps2'));
+    final existing = await card.exists() ? await card.readAsBytes() : null;
+    final Uint8List merged;
+    try {
+      merged = await Isolate.run(
+          () => Ps2SaveFolders.merge(existing, mine, (name) => Ps2SaveFolders.isSaveOf(name, serial)));
+    } on FormatException catch (e) {
+      throw SaveSyncNotPossibleException(
+          "PCSX2's memory card (${p.basename(card.path)}) doesn't look like a PS2 memory card Freegosy can safely "
+          'change ($e), so it was left as it is.');
+    } on Ps2CardFullException catch (e) {
+      throw SaveSyncNotPossibleException(
+          "The save from RomM doesn't fit on PCSX2's memory card (${p.basename(card.path)}) with the saves already "
+          'on it: ${e.needed} KB needed, ${e.capacity} KB on the card. Nothing was changed. Free some space in '
+          "PCSX2's Memory Card settings, then pull again.");
+    }
+    await card.parent.create(recursive: true);
+    if (await card.exists()) await backupSave(card.path);
+    final temp = io.File('${card.path}.freegosy_tmp');
+    await temp.writeAsBytes(merged, flush: true);
+    await temp.rename(card.path);
+    debugPrint('[PCSX2]   put ${mine.map((s) => s.name).toList()} on file card ${card.path}');
+    return true;
+  }
+
+  @override
+  Future<String?> saveSyncBlockedReason(Game game, String romPath) async {
+    try {
+      final cards = await _memcards(await _memcardsDir());
+      if (!cards.any((c) => c is io.File)) return null;
+      return await _extractSerial(romPath) == null ? _noSerialMessage : null;
+    } catch (e) {
+      debugPrint('[PCSX2] cannot tell whether saves can be synced: $e');
+      return null;
+    }
+  }
+
+  /// PCSX2 opens its file cards when a game starts, so a pull that lands
+  /// after that would be overwritten when the game saves.
+  @override
+  Future<bool> pullMustFinishBeforeLaunch(Game game, String romPath) async {
+    try {
+      return (await _memcards(await _memcardsDir())).any((c) => c is io.File);
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   Future<bool> restoreSave(
       Game game, String destPath, Uint8List data, String filename) async {
     try {
       final root = await _getSaveRoot();
       final bool isEmuDeck = p.basename(root) == 'saves';
+
+      if (!_stateFilePattern.hasMatch(p.basename(filename)) &&
+          await _restoreOntoCard(destPath, isEmuDeck ? root : p.join(root, 'memcards'), data, filename)) {
+        return true;
+      }
 
       // Cloud saves come as zips
       if (filename.toLowerCase().endsWith('.zip')) {
@@ -547,6 +760,8 @@ class Pcsx2SaveStrategy extends SaveStrategy with StateSyncCapable {
       await backupSave(targetPath);
       await io.File(targetPath).writeAsBytes(data);
       return true;
+    } on SaveSyncNotPossibleException {
+      rethrow;
     } catch (e) {
       debugPrint('[PCSX2] restoreSave failed: $e');
       return false;

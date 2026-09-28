@@ -11,7 +11,7 @@ import '../../storage/directory_service.dart';
 import '../ps1_memory_card.dart';
 import '../ps2_memory_card.dart';
 import '../save_strategy.dart';
-import 'lrps2_memory_cards.dart';
+import 'ps2_save_folders.dart';
 import 'pcsx2_save_strategy.dart';
 import 'package:path/path.dart' as p; // Import path package
 
@@ -493,7 +493,7 @@ class RetroArchSaveStrategy extends SaveStrategy {
 
   /// LRPS2's memory cards for [romPath]: its two shared cards in the system
   /// folder, or the game's own card in the save folder when *Shared Memory
-  /// Cards* is off (see [Lrps2MemoryCards]).
+  /// Cards* is off (see [Ps2SaveFolders]).
   Future<({List<io.File> cards, bool shared})> _lrps2Cards(Game game, String romPath) async {
     final raDir = await _retroArchDir();
     final optionsDir = _cachedCoreOptionsDir ?? p.join(raDir, 'config');
@@ -507,7 +507,7 @@ class RetroArchSaveStrategy extends SaveStrategy {
       final f = io.File(path);
       if (await f.exists()) optionFiles.add(await f.readAsString());
     }
-    if (Lrps2MemoryCards.usesSharedCards(optionFiles)) {
+    if (Ps2SaveFolders.lrps2UsesSharedCards(optionFiles)) {
       final memcards = p.join(_cachedSystemDir ?? p.join(raDir, 'system'), 'pcsx2', 'memcards');
       return (cards: [io.File(p.join(memcards, 'Mcd001.ps2')), io.File(p.join(memcards, 'Mcd002.ps2'))], shared: true);
     }
@@ -526,7 +526,7 @@ class RetroArchSaveStrategy extends SaveStrategy {
   /// when it can't be told (shared cards, serial unknown).
   Future<bool Function(String)?> _lrps2SavesOf(String romPath, bool shared) async {
     final serial = await _ps2Serial(romPath);
-    if (serial != null) return (name) => Lrps2MemoryCards.isSaveOf(name, serial);
+    if (serial != null) return (name) => Ps2SaveFolders.isSaveOf(name, serial);
     return shared ? null : (_) => true;
   }
 
@@ -591,7 +591,7 @@ class RetroArchSaveStrategy extends SaveStrategy {
   Future<void> _restoreLrps2(Game game, String romPath, Uint8List data, String filename) async {
     final List<Ps2CardSave> incoming;
     try {
-      incoming = Lrps2MemoryCards.savesFromUpload(data, filename);
+      incoming = Ps2SaveFolders.savesFromUpload(data, filename);
     } on FormatException catch (e) {
       throw SaveSyncNotPossibleException(
           "The PS2 memory card from RomM ($filename) isn't one Freegosy can read ($e). Nothing was changed.");
@@ -627,7 +627,7 @@ class RetroArchSaveStrategy extends SaveStrategy {
     final Uint8List merged;
     try {
       final source = targetBytes;
-      merged = await Isolate.run(() => Lrps2MemoryCards.merge(source, mine, belongs));
+      merged = await Isolate.run(() => Ps2SaveFolders.merge(source, mine, belongs));
     } on FormatException catch (e) {
       throw SaveSyncNotPossibleException(
           "LRPS2's memory card (${p.basename(target.path)}) doesn't look like a PS2 memory card Freegosy can "
