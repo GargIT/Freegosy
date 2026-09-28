@@ -450,7 +450,8 @@ class RetroArchSaveStrategy extends SaveStrategy {
   }
 
   /// Detects an EmuDeck-for-Windows install and returns its RetroArch root
-  /// (`%USERPROFILE%\emudeck\EmulationStation-DE\Emulators\RetroArch`) if present.
+  /// if present: `%USERPROFILE%\EmuDeck\Emulators\RetroArch` (issue #79), or
+  /// `%USERPROFILE%\emudeck\EmulationStation-DE\Emulators\RetroArch`.
   ///
   /// EmuDeck for Windows installs RetroArch there directly and exposes a
   /// `Emulation\saves\retroarch\...` junction pointing back to it. We resolve
@@ -460,11 +461,15 @@ class RetroArchSaveStrategy extends SaveStrategy {
     if (_cachedEmuDeckWindowsRoot != null) return _cachedEmuDeckWindowsRoot;
     final userProfile = _platform.environment['USERPROFILE'];
     if (userProfile == null || userProfile.isEmpty) return null;
-    final candidate = p.join(userProfile, 'emudeck', 'EmulationStation-DE', 'Emulators', 'RetroArch');
-    if (await io.Directory(candidate).exists()) {
-      _cachedEmuDeckWindowsRoot = candidate;
-      debugPrint('[SaveSync] [retroarch] detected EmuDeck-for-Windows root=$candidate');
-      return candidate;
+    for (final candidate in [
+      p.join(userProfile, 'EmuDeck', 'Emulators', 'RetroArch'),
+      p.join(userProfile, 'emudeck', 'EmulationStation-DE', 'Emulators', 'RetroArch'),
+    ]) {
+      if (await io.Directory(candidate).exists()) {
+        _cachedEmuDeckWindowsRoot = candidate;
+        debugPrint('[SaveSync] [retroarch] detected EmuDeck-for-Windows root=$candidate');
+        return candidate;
+      }
     }
     return null;
   }
@@ -788,6 +793,14 @@ class RetroArchSaveStrategy extends SaveStrategy {
     final romStem = p.basenameWithoutExtension(romPath).toLowerCase();
     final rootDir = io.Directory(saveRoot);
     if (await rootDir.exists()) {
+      // A save directly in saveRoot: RetroArch doesn't sort into core
+      // folders, though the flag couldn't be read (issue #79, EmuDeck).
+      await for (final f in rootDir.list()) {
+        if (f is io.File && isSaveNamedFor(p.basename(f.path), romStem) && _isSaveFile(p.basename(f.path).toLowerCase())) {
+          debugPrint('[SaveSync] [retroarch] getSaveDir save in saveRoot → $saveRoot');
+          return saveRoot;
+        }
+      }
       await for (final entity in rootDir.list()) {
         if (entity is! io.Directory) continue;
         final subdir = entity.path;
