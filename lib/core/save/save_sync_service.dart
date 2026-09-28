@@ -368,6 +368,7 @@ class SaveSyncService {
     debugPrint('[SaveSync] ─── PUSH START ─── game="${game.displayName}" slug=${game.platformSlug}');
     debugPrint('[SaveSync]   romPath: $romPath');
     debugPrint('[SaveSync]   syncMode=$syncMode  force=$force  coreOverride=$coreOverride  emulatorId=$emulatorId  sessionStart=$sessionStart');
+    await _throwIfSyncBlocked(game, romPath, emulatorId: emulatorId);
     final caps = await _rommService.fetchCapabilities();
     final useDevice = caps.hasDeviceSaveSync;
     debugPrint('[SaveSync]   RomM version: ${useDevice ? "4.9+ (device sync)" : "legacy (<4.9)"}');
@@ -404,6 +405,7 @@ class SaveSyncService {
 
     debugPrint('[SaveSync] ─── PULL START ─── game="${game.displayName}" slug=${game.platformSlug}');
     debugPrint('[SaveSync]   romPath: $romPath  coreOverride=$coreOverride  emulatorId=$emulatorId  saveData=${saveData != null ? "manual" : "auto"}');
+    await _throwIfSyncBlocked(game, romPath, emulatorId: emulatorId);
     final caps = await _rommService.fetchCapabilities();
     final useDevice = caps.hasDeviceSaveSync;
     debugPrint('[SaveSync]   RomM version: ${useDevice ? "4.9+ (device sync)" : "legacy (<4.9)"}');
@@ -416,6 +418,17 @@ class SaveSyncService {
   // ---------------------------------------------------------------------------
   // Helpers shared by both paths
   // ---------------------------------------------------------------------------
+
+  /// Throws [SaveSyncNotPossibleException] when [game]'s save strategy says
+  /// the emulator is set up so its saves can't be synced (see
+  /// [SaveStrategy.saveSyncBlockedReason]).
+  Future<void> _throwIfSyncBlocked(Game game, String romPath, {String? emulatorId}) async {
+    final reason =
+        await getStrategyForGame(game, emulatorId: emulatorId)?.saveSyncBlockedReason(game, romPath);
+    if (reason == null) return;
+    debugPrint('[SaveSync] not syncing "${game.displayName}": $reason');
+    throw SaveSyncBlockedException(reason);
+  }
 
   String? _getDeviceId() => _prefs.getString('romm_device_id');
 
@@ -667,6 +680,8 @@ class SaveSyncService {
       return result.ok;
     } on SaveConflictException {
       rethrow;
+    } on SaveSyncNotPossibleException {
+      rethrow;
     } catch (e) {
       debugPrint('[SaveSync] [push] ERROR: $e');
       return false;
@@ -756,6 +771,10 @@ class SaveSyncService {
         }
       }
 
+      if (SaveRestoreGuard.restoreTooLate) {
+        debugPrint('[SaveSync] [pull] The launch went ahead without this pull — not restoring "$adjustedFilename"');
+        return false;
+      }
       final ok = await strategy.restoreSave(game, romPath, bytes, adjustedFilename);
       if (!ok) {
         debugPrint('[SaveSync] [pull] Strategy failed to restore save');
@@ -964,6 +983,8 @@ class SaveSyncService {
       return uploaded > 0;
     } on SaveConflictException {
       rethrow;
+    } on SaveSyncNotPossibleException {
+      rethrow;
     } catch (e) {
       debugPrint('[SaveSync] [push] ERROR: $e');
       return false;
@@ -1083,6 +1104,10 @@ class SaveSyncService {
       final adjustedFilename = _adjustFilenameForFormat(bytes, normalizeSaveFilename(filename));
       debugPrint('[SaveSync] [pull] Downloaded ${bytes.length} bytes → restoring as "$adjustedFilename"');
 
+      if (SaveRestoreGuard.restoreTooLate) {
+        debugPrint('[SaveSync] [pull] The launch went ahead without this pull — not restoring "$adjustedFilename"');
+        return false;
+      }
       final ok = await strategy.restoreSave(game, romPath, bytes, adjustedFilename);
 
       if (ok) {

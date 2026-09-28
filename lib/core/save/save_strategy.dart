@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' as io;
 import 'dart:typed_data';
 import 'package:path/path.dart' as p;
@@ -15,6 +16,49 @@ class SaveMappingRequiredException implements Exception {
   String toString() => 'SaveMappingRequiredException: $message';
 }
 
+/// Thrown by save sync when the emulator is set up so that its saves can't be
+/// synced for one game (see [SaveStrategy.saveSyncBlockedReason]). [message]
+/// tells the user why and what to change; it is not an error to retry.
+class SaveSyncNotPossibleException implements Exception {
+  final String message;
+  SaveSyncNotPossibleException(this.message);
+  @override
+  String toString() => 'SaveSyncNotPossibleException: $message';
+}
+
+/// A [SaveSyncNotPossibleException] for how the emulator is set up (see
+/// [SaveStrategy.saveSyncBlockedReason]), as opposed to a problem with one
+/// save. It holds for every launch until the settings change, so the
+/// pre-launch pull only logs it.
+class SaveSyncBlockedException extends SaveSyncNotPossibleException {
+  SaveSyncBlockedException(super.message);
+}
+
+/// Tells a pull that started before a launch whether the launch went ahead
+/// without it (the pre-launch wait timed out). A save written after the
+/// emulator has opened its files would be overwritten from memory when the
+/// game next saves, so a late pull doesn't write it.
+///
+/// [run] makes the guard [current] for everything [body] starts, so the
+/// check reaches the save strategies without passing it through every call.
+class SaveRestoreGuard {
+  static const _zoneKey = #freegosySaveRestoreGuard;
+
+  bool _tooLate = false;
+
+  /// The launch went ahead: the pull must not write anything any more.
+  void markTooLate() => _tooLate = true;
+
+  bool get tooLate => _tooLate;
+
+  T run<T>(T Function() body) => runZoned(body, zoneValues: {_zoneKey: this});
+
+  static SaveRestoreGuard? get current => Zone.current[_zoneKey] as SaveRestoreGuard?;
+
+  /// Whether the pull running here was overtaken by the launch.
+  static bool get restoreTooLate => current?.tooLate ?? false;
+}
+
 /// Abstract base for all save-file strategies.
 abstract class SaveStrategy {
   String get strategyId;
@@ -27,14 +71,30 @@ abstract class SaveStrategy {
   /// which is needed for emulators like emulator.js in RomM to read the files (e.g. .srm, .sav).
   bool get shouldZip => true;
 
+  /// Why [game]'s saves can't be synced with the emulator set up as it is
+  /// (e.g. no memory card at all), or null when they can.
+  /// Checked before every push and pull; a reason stops both and reaches the
+  /// user. Local backups are not affected. Must not throw: a failure to tell
+  /// means null.
+  Future<String?> saveSyncBlockedReason(Game game, String romPath) async => null;
+
+  /// Whether the pre-launch pull must finish before the emulator starts,
+  /// e.g. because restoring changes a file other games' saves share. The
+  /// pull otherwise runs alongside the launch.
+  Future<bool> pullMustFinishBeforeLaunch(Game game, String romPath) async => false;
+
   /// Returns the local save directory for [game] given its [romPath].
   Future<String?> getSaveDir(Game game, String romPath);
 
-  /// Returns all save files associated with [game].
-  /// If [sessionStart] is provided, only files modified after that time are returned.
+  /// Returns all save files associated with [game]: what local backups keep
+  /// (BackupService). If [sessionStart] is provided, only files modified
+  /// after that time are returned.
   Future<List<io.File>> getSaveFiles(Game game, String romPath, {DateTime? sessionStart, String syncMode = 'both'});
 
-  /// Returns all save files associated with [game], optionally paired with screenshots.
+  /// Returns all save files associated with [game], optionally paired with screenshots:
+  /// what save sync uploads and compares (SaveSyncService). By default the
+  /// same files as [getSaveFiles]; a strategy may upload something narrower
+  /// than it backs up (e.g. one game's saves out of a card shared by all).
   /// If [sessionStart] is provided, only files modified after that time are returned.
   Future<Map<io.File, io.File?>> getSaveFilesWithScreenshots(Game game, String romPath, {DateTime? sessionStart, String syncMode = 'both'}) async {
     final files = await getSaveFiles(game, romPath, sessionStart: sessionStart, syncMode: syncMode);
