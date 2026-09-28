@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +9,8 @@ import 'package:freegosy/providers/retroachievements_provider.dart';
 import 'package:freegosy/providers/romm_provider.dart';
 import 'package:freegosy/providers/shared_prefs_provider.dart';
 import 'package:freegosy/ui/screens/settings_retroachievements_section.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import '../helpers/fake_retroachievements.dart';
 
@@ -16,13 +20,21 @@ import '../helpers/fake_retroachievements.dart';
 void main() {
   late InMemoryAppPreferences prefs;
   late FakeRetroAchievementsService service;
+  late Directory tempDir;
 
-  setUp(() {
+  setUp(() async {
     useInMemorySecureStorage();
     prefs = InMemoryAppPreferences();
     service = FakeRetroAchievementsService(loginUsername: 'Player');
+    // Disconnecting deletes RetroArch's on-disk RA config; give path_provider
+    // somewhere real to resolve to instead of hitting an unmocked channel.
+    tempDir = await Directory.systemTemp.createTemp('ra_settings_test_');
+    PathProviderPlatform.instance = _FakePathProvider(tempDir.path);
   });
-  tearDown(resetSecureStorage);
+  tearDown(() async {
+    resetSecureStorage();
+    if (await tempDir.exists()) await tempDir.delete(recursive: true);
+  });
 
   // No RomM connection unless a test provides one, so the RomM link UI stays hidden.
   Future<void> pumpSection(WidgetTester tester, {FakeRommRaService? romm}) async {
@@ -284,4 +296,12 @@ void main() {
       expect(find.text('Not linked to your RomM profile.'), findsOneWidget);
     });
   });
+}
+
+class _FakePathProvider extends PathProviderPlatform with MockPlatformInterfaceMixin {
+  final String _path;
+  _FakePathProvider(this._path);
+
+  @override
+  Future<String?> getApplicationSupportPath() async => _path;
 }
