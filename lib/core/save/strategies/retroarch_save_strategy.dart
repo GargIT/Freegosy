@@ -15,6 +15,8 @@ import 'ps2_save_folders.dart';
 import 'pcsx2_save_strategy.dart';
 import 'package:path/path.dart' as p; // Import path package
 import '../../emulator/platform_slugs.dart';
+import '../../emulator/retroarch_core_list.dart';
+import '../../emulator/retroarch_core_names.dart';
 
 /// Save strategy for RetroArch emulator.
 ///
@@ -87,87 +89,80 @@ class RetroArchSaveStrategy extends SaveStrategy {
   String? _launchCoreOverride;
   void setLaunchCoreOverride(String? coreId) => _launchCoreOverride = coreId;
 
-  /// Resolves the core info for a slug, checking overrides first.
+  /// The core [slug]'s saves belong to, with its save and state folders:
+  /// the core the game is launched with, the same way RetroArchStrategy
+  /// picks it (the game's core, the platform's chosen core, else the
+  /// platform's default core), so a pulled save lands where that core reads
+  /// it. Without a launch or chosen core, RetroArch's last-used core
+  /// (retroarch.cfg's libretro_path) counts when it runs this platform.
   _CoreInfo? _getCoreInfo(String slug) {
     slug = canonicalPlatformSlug(slug);
     debugPrint('[SaveSync] [retroarch] _getCoreInfo: slug="$slug"  ndsCore=$_ndsCore');
 
     // 1. NDS dynamic override (backward compat)
     if (slug == 'nds' || slug == 'nintendo-ds') {
-      final info = _ndsCore == 'desmume'
-          ? const _CoreInfo('desmume2015_libretro', 'DeSmuME 2015', 'DeSmuME 2015')
-          : const _CoreInfo('melonds_libretro', 'melonDS', 'melonDS');
-      debugPrint('[SaveSync] [retroarch]   → NDS override: core=${info.coreName}');
+      final info = _infoForCore(_ndsCore == 'desmume' ? 'desmume2015_libretro' : 'melonds_libretro');
+      debugPrint('[SaveSync] [retroarch]   → NDS override: core=${info?.coreName}');
       return info;
     }
 
     // 2. Launch-time core override (from core picker dialog)
     if (_launchCoreOverride != null) {
-      final baseName = _launchCoreOverride!.replaceAll(RegExp(r'\.(dll|so|dylib)$'), '');
-      final stripped = baseName.replaceAll(RegExp(r'_libretro$'), '');
-      final folderInfo = _coreFolderOverrides[stripped];
-      if (folderInfo != null) {
-        debugPrint('[SaveSync] [retroarch] _getCoreInfo launch override (folderOverrides) → core=${folderInfo.coreName}');
-        return folderInfo;
-      }
-      // Fallback: check _coreMap
-      for (final entry in _coreMap.entries) {
-        if (entry.value.coreName == baseName) {
-          debugPrint('[SaveSync] [retroarch] _getCoreInfo launch override (_coreMap) → core=${entry.value.coreName}');
-          return entry.value;
-        }
-      }
-      debugPrint('[SaveSync] [retroarch] _getCoreInfo launch override (fallback) → core=$baseName');
-      return _CoreInfo(baseName, baseName, 'States/$baseName');
+      final info = _infoForCore(_launchCoreOverride!, fallback: true);
+      debugPrint('[SaveSync] [retroarch] _getCoreInfo launch override → core=${info?.coreName}');
+      return info;
     }
 
-    // 3. General core override from registry
+    // 3. The platform's chosen core (Settings), from the registry
     final overrideCoreId = _coreOverrides[slug];
     if (overrideCoreId != null) {
-      debugPrint('[SaveSync] [retroarch] _getCoreInfo registry override overrideCoreId=$overrideCoreId');
-      final baseName = overrideCoreId.replaceAll(RegExp(r'\.(dll|so|dylib)$'), '');
-      // Try to find matching _coreMap entry by coreName
-      for (final entry in _coreMap.entries) {
-        if (entry.value.coreName == baseName) {
-          debugPrint('[SaveSync] [retroarch] _getCoreInfo registry override (_coreMap) → core=${entry.value.coreName}');
-          return entry.value;
-        }
-      }
-      // Try _coreFolderOverrides (maps core IDs to correct save folders)
-      final stripped = baseName.replaceAll(RegExp(r'_libretro$'), '');
-      final folderInfo = _coreFolderOverrides[stripped];
-      if (folderInfo != null) {
-        debugPrint('[SaveSync] [retroarch] _getCoreInfo registry override (folderOverrides) → core=${folderInfo.coreName}');
-        return folderInfo;
-      }
-
-      // Fallback: use the override core name with generic save folders
-      debugPrint('[SaveSync] [retroarch] _getCoreInfo registry override (fallback) → core=$baseName');
-      return _CoreInfo(baseName, baseName, 'States/$baseName');
+      final info = _infoForCore(overrideCoreId, fallback: true);
+      debugPrint('[SaveSync] [retroarch] _getCoreInfo registry override → core=${info?.coreName}');
+      return info;
     }
 
-    // 3. Active core from retroarch.cfg libretro_path.
-    // When the user switches cores (e.g. Mupen64Plus → Parallel N64),
-    // the save directory changes. Detect this and use the correct folder.
-    if (_cachedActiveCore != null) {
-      debugPrint('[SaveSync] [retroarch] _getCoreInfo activeCore=${_cachedActiveCore!}');
-      final activeInfo = _coreFolderOverrides[_cachedActiveCore!];
-      if (activeInfo != null) {
-        // Check if this core supports the requested platform
-        // by verifying the core's default map entry exists for this slug
-        final defaultInfo = _coreMap[slug];
-        if (defaultInfo != null) {
-          debugPrint('[SaveSync] [retroarch] _getCoreInfo active core override → core=${activeInfo.coreName}');
-          return activeInfo;
-        }
+    // 4. RetroArch's last-used core, when it runs this platform. A core for
+    // another system (mGBA before a PS1 pull) says nothing about this one.
+    final active = _cachedActiveCore;
+    if (active != null && getCoresForSlug(slug).any((c) => _bare(c.id) == active)) {
+      final info = _infoForCore(active);
+      if (info != null) {
+        debugPrint('[SaveSync] [retroarch] _getCoreInfo active core → core=${info.coreName}');
+        return info;
       }
     }
 
-    // 4. Default from static map
-    final defaultCore = _coreMap[slug];
-    debugPrint('[SaveSync] [retroarch] _getCoreInfo default map → ${defaultCore?.coreName ?? "null"}');
-    return defaultCore;
+    // 5. The platform's default core, the one RetroArchStrategy launches
+    final defaultCore = getDefaultCoreForSlug(slug);
+    final info = defaultCore == null ? null : _infoForCore(defaultCore);
+    debugPrint('[SaveSync] [retroarch] _getCoreInfo default core → ${info?.coreName ?? "null"}');
+    return info;
   }
+
+  /// Save and state folders for [coreId] (`mgba`, `mgba_libretro` or
+  /// `mgba_libretro.dll`): named after its library_name, or its own layout.
+  /// With [fallback], a core Freegosy doesn't know keeps its bare name.
+  static _CoreInfo? _infoForCore(String coreId, {bool fallback = false}) {
+    final base = _bare(coreId);
+    final core = '${base}_libretro';
+    final own = _ownLayouts[base];
+    if (own != null) return own;
+    final name = kRetroArchCoreLibraryNames[core];
+    if (name != null) return _CoreInfo(core, name, name);
+    return fallback ? _CoreInfo(base, base, 'States/$base') : null;
+  }
+
+  /// `mgba` for `mgba`, `mgba_libretro` and `mgba_libretro.dll`.
+  static String _bare(String coreId) => coreBaseName(coreId).replaceAll(RegExp(r'_libretro$'), '');
+
+  /// Cores that don't keep their saves in a folder named after their
+  /// library_name: PPSSPP keeps PSP saves in its own memory-stick layout,
+  /// Azahar a 3DS layout, and Mupen64Plus states under States/.
+  static const Map<String, _CoreInfo> _ownLayouts = {
+    'ppsspp':      _CoreInfo('ppsspp_libretro',      'PPSSPP/PSP/SAVEDATA', 'PPSSPP'),
+    'azahar':      _CoreInfo('azahar_libretro',      '3DS',                 'States/3DS'),
+    'mupen64plus': _CoreInfo('mupen64plus_libretro', 'Mupen64Plus',         'States/Mupen64Plus'),
+  };
 
   @override
   String get strategyId => 'retroarch';
@@ -183,123 +178,6 @@ class RetroArchSaveStrategy extends SaveStrategy {
     final ext = p.extension(filename).toLowerCase();
     return _saveExtensions.contains(ext);
   }
-
-  // _CoreInfo maps platform slugs to RetroArch core info, including save and state directories.
-  // With "Sort Saves/States into Folders by Core" on, RetroArch names both
-  // folders after the core's library_name, which is the `corename` in the
-  // core's .info file (libretro/libretro-core-info): e.g. `Mupen64Plus-Next`,
-  // `LRPS2`, `FCEUmm`. PSP and 3DS keep their cores' own layouts.
-  static const Map<String, _CoreInfo> _coreMap = {
-    // Nintendo
-    'gba':       _CoreInfo('mgba_libretro',            'mGBA',               'mGBA'),
-    'gbc':       _CoreInfo('mgba_libretro',            'mGBA',               'mGBA'),
-    'gb':        _CoreInfo('mgba_libretro',            'mGBA',               'mGBA'),
-    'nes':       _CoreInfo('fceumm_libretro',          'FCEUmm',             'FCEUmm'),
-    'snes':      _CoreInfo('snes9x_libretro',          'Snes9x',             'Snes9x'),
-    'n64':       _CoreInfo('mupen64plus_next_libretro', 'Mupen64Plus-Next',   'Mupen64Plus-Next'),
-    'nds':       _CoreInfo('melonds_libretro',         'melonDS',            'melonDS'),
-    'nintendo-ds': _CoreInfo('melonds_libretro',       'melonDS',            'melonDS'),
-    '3ds':       _CoreInfo('azahar_libretro',          '3DS',                'States/3DS'),
-    'n3ds':      _CoreInfo('azahar_libretro',          '3DS',                'States/3DS'),
-    'nintendo-3ds': _CoreInfo('azahar_libretro',       '3DS',                'States/3DS'),
-    'virtualboy': _CoreInfo('mednafen_vb_libretro',    'Beetle VB',          'Beetle VB'),
-    // Sony
-    'psx':       _CoreInfo('pcsx_rearmed_libretro',    'PCSX-ReARMed',       'PCSX-ReARMed'),
-    'ps1':       _CoreInfo('pcsx_rearmed_libretro',    'PCSX-ReARMed',       'PCSX-ReARMed'),
-    'playstation': _CoreInfo('pcsx_rearmed_libretro',  'PCSX-ReARMed',       'PCSX-ReARMed'),
-    'psp':       _CoreInfo('ppsspp_libretro',          'PPSSPP/PSP/SAVEDATA', 'PPSSPP'),
-    'playstation-portable': _CoreInfo('ppsspp_libretro', 'PPSSPP/PSP/SAVEDATA', 'PPSSPP'),
-    'ps2':       _CoreInfo('pcsx2_libretro',           'LRPS2',              'LRPS2'),
-    // Sega
-    'megadrive': _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
-    'genesis':   _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
-    'md':        _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
-    'segacd':    _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
-    'sms':       _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
-    'mastersystem': _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
-    'gamegear':  _CoreInfo('genesis_plus_gx_libretro', 'Genesis Plus GX',    'Genesis Plus GX'),
-    'saturn':    _CoreInfo('mednafen_saturn_libretro', 'Beetle Saturn',      'Beetle Saturn'),
-    'dc':        _CoreInfo('flycast_libretro',         'Flycast',            'Flycast'),
-    'dreamcast': _CoreInfo('flycast_libretro',         'Flycast',            'Flycast'),
-    // Atari
-    'atari2600': _CoreInfo('stella_libretro',          'Stella',             'Stella'),
-    'atari7800': _CoreInfo('prosystem_libretro',       'ProSystem',          'ProSystem'),
-    'atari5200': _CoreInfo('atari800_libretro',        'Atari800',           'Atari800'),
-    'atari800':  _CoreInfo('atari800_libretro',        'Atari800',           'Atari800'),
-    'lynx':      _CoreInfo('mednafen_lynx_libretro',   'Beetle Lynx',        'Beetle Lynx'),
-    // Arcade / SNK
-    'neogeo':    _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
-    'neo-geo':   _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
-    'neogeoaes': _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
-    'neogeomvs': _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
-    'neo-geo-aes': _CoreInfo('fbneo_libretro',         'FinalBurn Neo',      'FinalBurn Neo'),
-    'neo-geo-mvs': _CoreInfo('fbneo_libretro',         'FinalBurn Neo',      'FinalBurn Neo'),
-    'mvs':       _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
-    'aes':       _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
-    'arcade':    _CoreInfo('fbneo_libretro',           'FinalBurn Neo',      'FinalBurn Neo'),
-    'mame':      _CoreInfo('mame_libretro',            'MAME',               'MAME'),
-    // FDS
-    'fds':       _CoreInfo('fceumm_libretro',          'FCEUmm',             'FCEUmm'),
-    'famicom-disk-system': _CoreInfo('fceumm_libretro', 'FCEUmm',            'FCEUmm'),
-    // NEC
-    'pcengine':  _CoreInfo('mednafen_pce_libretro',    'Beetle PCE',         'Beetle PCE'),
-    'pcenginecd': _CoreInfo('mednafen_pce_libretro',   'Beetle PCE',         'Beetle PCE'),
-    'tg16':      _CoreInfo('mednafen_pce_libretro',    'Beetle PCE',         'Beetle PCE'),
-    'turbografx16': _CoreInfo('mednafen_pce_libretro', 'Beetle PCE',         'Beetle PCE'),
-    'turbografx-16': _CoreInfo('mednafen_pce_libretro', 'Beetle PCE',        'Beetle PCE'),
-    'turbografx-cd': _CoreInfo('mednafen_pce_libretro', 'Beetle PCE',        'Beetle PCE'),
-    'supergrafx': _CoreInfo('mednafen_pce_libretro',   'Beetle PCE',         'Beetle PCE'),
-    'pcfx':      _CoreInfo('mednafen_pcfx_libretro',   'Beetle PC-FX',       'Beetle PC-FX'),
-    // Bandai
-    'wonderswan': _CoreInfo('mednafen_wswan_libretro', 'Beetle WonderSwan',  'Beetle WonderSwan'),
-    'wonderswancolor': _CoreInfo('mednafen_wswan_libretro', 'Beetle WonderSwan', 'Beetle WonderSwan'),
-    'ngp':       _CoreInfo('mednafen_ngp_libretro',    'Beetle NeoPop',      'Beetle NeoPop'),
-    'ngpc':      _CoreInfo('mednafen_ngp_libretro',    'Beetle NeoPop',      'Beetle NeoPop'),
-    // Computer
-    'dos':       _CoreInfo('dosbox_pure_libretro',     'DOSBox-pure',        'DOSBox-pure'),
-    'msx':       _CoreInfo('bluemsx_libretro',         'blueMSX',            'blueMSX'),
-    'c64':       _CoreInfo('vice_x64_libretro',        'VICE x64',           'VICE x64'),
-    'commodore64': _CoreInfo('vice_x64_libretro',      'VICE x64',           'VICE x64'),
-    'amiga':     _CoreInfo('puae_libretro',            'PUAE',               'PUAE'),
-    'zxspectrum': _CoreInfo('fuse_libretro',           'Fuse',               'Fuse'),
-    'amstradcpc': _CoreInfo('cap32_libretro',          'Caprice32',          'Caprice32'),
-    'acpc':       _CoreInfo('cap32_libretro',          'Caprice32',          'Caprice32'), // IGDB slug, what RomM actually sends — see #78
-    'sharp68000': _CoreInfo('px68k_libretro',          'PX68k',              'PX68k'),
-    'pc98':      _CoreInfo('np2kai_libretro',          'Neko Project II Kai', 'Neko Project II Kai'),
-    // Other
-    'vectrex':   _CoreInfo('vecx_libretro',            'vecx',               'vecx'),
-  };
-
-  /// Maps libretro core IDs (from `libretro_path` in retroarch.cfg) to their
-  /// on-disk save folder names. When the active core differs from the default
-  /// in `_coreMap`, this overrides the save folder resolution.
-  static const Map<String, _CoreInfo> _coreFolderOverrides = {
-    // N64 cores
-    'mupen64plus_next':    _CoreInfo('mupen64plus_next_libretro', 'Mupen64Plus-Next', 'Mupen64Plus-Next'),
-    'parallel_n64':        _CoreInfo('parallel_n64_libretro',     'ParaLLEl N64',     'ParaLLEl N64'),
-    'mupen64plus':         _CoreInfo('mupen64plus_libretro',      'Mupen64Plus',      'States/Mupen64Plus'),
-    // GBA cores
-    'mgba':                _CoreInfo('mgba_libretro',             'mGBA',             'mGBA'),
-    'vbam':                _CoreInfo('vbam_libretro',             'VBA-M',            'VBA-M'),
-    'gpSP':                _CoreInfo('gpsp_libretro',             'gpSP',             'gpSP'),
-    // SNES cores
-    'snes9x':              _CoreInfo('snes9x_libretro',           'Snes9x',           'Snes9x'),
-    'bsnes':               _CoreInfo('bsnes_libretro',            'bsnes',            'bsnes'),
-    'bsnes_hd_beta':       _CoreInfo('bsnes_hd_beta_libretro',    'bsnes-hd beta',    'bsnes-hd beta'),
-    // PS1 cores
-    'pcsx_rearmed':        _CoreInfo('pcsx_rearmed_libretro',     'PCSX-ReARMed',     'PCSX-ReARMed'),
-    'mednafen_psx':        _CoreInfo('mednafen_psx_libretro',     'Beetle PSX',       'Beetle PSX'),
-    'mednafen_psx_hw':     _CoreInfo('mednafen_psx_hw_libretro',  'Beetle PSX HW',    'Beetle PSX HW'),
-    'duckstation':         _CoreInfo('duckstation_libretro',      'DuckStation',      'DuckStation'),
-    // NDS cores
-    'melonds':             _CoreInfo('melonds_libretro',          'melonDS',          'melonDS'),
-    'desmume':             _CoreInfo('desmume2015_libretro',      'DeSmuME 2015',     'DeSmuME 2015'),
-    // PSP cores
-    'ppsspp':              _CoreInfo('ppsspp_libretro',           'PPSSPP/PSP/SAVEDATA', 'PPSSPP'),
-    // Genesis cores
-    'genesis_plus_gx':     _CoreInfo('genesis_plus_gx_libretro',  'Genesis Plus GX',  'Genesis Plus GX'),
-    'fceumm':              _CoreInfo('fceumm_libretro',           'FCEUmm',           'FCEUmm'),
-  };
 
   /// Reads `savefile_directory` and sort flags from retroarch.cfg.
   ///
