@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:freegosy/core/emulator/strategies/retroarch_strategy.dart';
 import 'package:freegosy/core/platform/platform_info.dart';
 import 'package:freegosy/core/retroachievements/retroachievements_emulator_login.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
@@ -40,6 +41,32 @@ void main() {
     test('hardcore defaults to off', () async {
       final prefs = InMemoryAppPreferences({kRaUsernameKey: 'P', secureKey(kRaConnectTokenSecureKey): 't'});
       expect((await RetroAchievementsEmulatorLogin.load(prefs))?.hardcore, isFalse);
+    });
+  });
+
+  group('RetroAchievementsEmulatorLogin.deleteEmulatorFiles', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('ra_cheevos_disconnect_');
+      PathProviderPlatform.instance = _FakePathProvider(tempDir.path);
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+
+    test('deletes the RetroArch achievements config file', () async {
+      final file = File(p.join(tempDir.path, kRetroArchAchievementsConfigFileName));
+      await file.writeAsString('cheevos_token = "leftover"');
+
+      await RetroAchievementsEmulatorLogin.deleteEmulatorFiles();
+
+      expect(await file.exists(), isFalse);
+    });
+
+    test('is a no-op when there is no file to delete', () async {
+      await RetroAchievementsEmulatorLogin.deleteEmulatorFiles();
     });
   });
 

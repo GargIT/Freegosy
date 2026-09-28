@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:freegosy/core/storage/app_preferences.dart';
 import 'package:freegosy/core/storage/secure_storage_service.dart';
 
@@ -7,6 +10,11 @@ const kRaUsernameKey = 'retroAchievementsUsername';
 const kRaWebApiKeySecureKey = 'retroAchievementsWebApiKey';
 const kRaConnectTokenSecureKey = 'retroAchievementsConnectToken';
 const kRaHardcoreKey = 'retroAchievementsHardcore';
+
+/// Filename of the `--appendconfig` file [RetroArchStrategy] writes the RA
+/// token to. Shared with [RetroAchievementsEmulatorLogin.deleteEmulatorFiles]
+/// so disconnecting doesn't leave it behind.
+const kRetroArchAchievementsConfigFileName = 'retroarch_achievements.cfg';
 
 /// What an emulator needs to sign in to RetroAchievements: the username and
 /// the Connect API token RA issued when the user gave Freegosy their password
@@ -31,6 +39,20 @@ class RetroAchievementsEmulatorLogin {
       token: token,
       hardcore: prefs.getBool(kRaHardcoreKey) ?? false,
     );
+  }
+
+  /// Deletes the on-disk `--appendconfig` files emulator strategies wrote
+  /// the RA token into (currently just RetroArch's), so disconnecting in
+  /// Settings doesn't leave the token behind on disk. Never throws — a
+  /// missing or unwritable file isn't a reason to fail disconnect.
+  static Future<void> deleteEmulatorFiles() async {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final file = File(p.join(dir.path, kRetroArchAchievementsConfigFileName));
+      if (await file.exists()) await file.delete();
+    } catch (_) {
+      // Best-effort: disconnect still clears the credentials that matter.
+    }
   }
 
   /// RetroArch config overrides, passed via `--appendconfig` so the user's

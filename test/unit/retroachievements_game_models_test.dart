@@ -98,11 +98,14 @@ void main() {
       expect(p.totalCount, 0);
     });
 
-    test('fromRomm merges earned_achievements into RomM\'s set', () {
+    test('fromRomm merges earned_achievements into RomM\'s set, keyed by badge name not id', () {
+      // Achievement ids and badge names deliberately don't line up: RomM's
+      // `earned_achievements[].id` is the badge name, not the RA achievement
+      // id, and this fixture would pass either way if they matched.
       const set = [
-        RetroAchievement(id: 1, title: 'a', description: '', points: 5, badgeName: '1'),
-        RetroAchievement(id: 2, title: 'b', description: '', points: 10, badgeName: '2'),
-        RetroAchievement(id: 3, title: 'c', description: '', points: 25, badgeName: '3'),
+        RetroAchievement(id: 1, title: 'a', description: '', points: 5, badgeName: '111'),
+        RetroAchievement(id: 2, title: 'b', description: '', points: 10, badgeName: '222'),
+        RetroAchievement(id: 3, title: 'c', description: '', points: 25, badgeName: '333'),
       ];
       final p = RetroAchievementsGameProgress.fromRomm(
         gameId: 99,
@@ -111,8 +114,8 @@ void main() {
           'rom_ra_id': 99,
           'highest_award_kind': 'mastered',
           'earned_achievements': [
-            {'id': '1', 'date': '2024-01-01 00:00:00', 'date_hardcore': '2024-01-01 00:00:00'},
-            {'id': 3, 'date': '2024-02-01 00:00:00'},
+            {'id': '111', 'date': '2024-01-01 00:00:00', 'date_hardcore': '2024-01-01 00:00:00'},
+            {'id': 333, 'date': '2024-02-01 00:00:00'},
             {'id': '404', 'date': '2024-02-01 00:00:00'}, // not in the set: ignored
           ],
         },

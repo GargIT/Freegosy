@@ -154,6 +154,7 @@ final retroAchievementsDisconnectProvider = Provider<Future<void> Function()>((r
     await prefs.remove(kRaHardcoreKey);
     await SecureStorageService.delete(kRaWebApiKeySecureKey, prefs);
     await SecureStorageService.delete(kRaConnectTokenSecureKey, prefs);
+    await RetroAchievementsEmulatorLogin.deleteEmulatorFiles();
     _invalidateAll(ref);
   };
 });

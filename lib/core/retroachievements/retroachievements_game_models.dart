@@ -191,15 +191,20 @@ class RetroAchievementsGameProgress {
   /// Builds progress from what RomM synced: the achievement set RomM stored
   /// for the game plus the user's `ra_progression` entry for it, whose
   /// `earned_achievements` are `{id, date, date_hardcore}` records.
+  ///
+  /// RomM's `EarnedAchievement.id` is the achievement's *badge name*, not
+  /// its RA id (see `sync_retroachievements_progress`/`ra_handler.py`'s
+  /// `EarnedAchievement(id=badge_name, ...)`), so unlocks are matched
+  /// against [RetroAchievement.badgeName], not [RetroAchievement.id].
   factory RetroAchievementsGameProgress.fromRomm({
     required int gameId,
     required List<RetroAchievement> achievements,
     required Map<String, dynamic> progression,
   }) {
-    final earned = <int, Map<String, dynamic>>{
+    final earned = <String, Map<String, dynamic>>{
       for (final e in (progression['earned_achievements'] as List<dynamic>? ?? const [])
           .whereType<Map<String, dynamic>>())
-        _int(e['id']): e,
+        if (e['id'] != null) e['id'].toString(): e,
     };
     return RetroAchievementsGameProgress(
       gameId: gameId,
@@ -207,8 +212,11 @@ class RetroAchievementsGameProgress {
       consoleName: '',
       achievements: [
         for (final a in achievements)
-          earned.containsKey(a.id)
-              ? a.withUnlock(earned: _raDate(earned[a.id]!['date']), earnedHardcore: _raDate(earned[a.id]!['date_hardcore']))
+          earned.containsKey(a.badgeName)
+              ? a.withUnlock(
+                  earned: _raDate(earned[a.badgeName]!['date']),
+                  earnedHardcore: _raDate(earned[a.badgeName]!['date_hardcore']),
+                )
               : a,
       ],
       highestAward: RetroAchievementsAward.parse(progression['highest_award_kind']?.toString()),
