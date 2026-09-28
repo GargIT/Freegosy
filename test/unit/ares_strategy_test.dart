@@ -95,6 +95,9 @@ void main() {
       expect(strategy.getSystemNameForSlug('snes'), 'Super Famicom');
       expect(strategy.getSystemNameForSlug('n64'), 'Nintendo 64');
       expect(strategy.getSystemNameForSlug('genesis'), 'Mega Drive');
+      // RomM's slugs for the same systems.
+      expect(strategy.getSystemNameForSlug('sfam'), 'Super Famicom');
+      expect(strategy.getSystemNameForSlug('neo-geo-pocket-color'), strategy.getSystemNameForSlug('ngpc'));
       expect(strategy.getSystemNameForSlug('psx'), 'PlayStation');
     });
 

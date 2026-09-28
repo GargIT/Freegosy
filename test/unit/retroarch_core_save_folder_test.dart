@@ -53,6 +53,9 @@ void main() {
     expect(strategy.coreIdFor(game('n64', 'x.z64')), 'mupen64plus_next');
     expect(strategy.coreIdFor(game('nds', 'x.nds')), 'melonds');
     expect(strategy.coreIdFor(game('unknown-platform', 'x.bin')), isNull);
+    // RomM's slugs for systems Freegosy knows by another name.
+    expect(strategy.coreIdFor(game('famicom', 'x.nes')), strategy.coreIdFor(game('nes', 'x.nes')));
+    expect(strategy.coreIdFor(game('neo-geo-pocket-color', 'x.ngc')), 'mednafen_ngp');
 
     strategy.setLaunchCoreOverride('mednafen_psx_hw_libretro.dll');
     expect(strategy.coreIdFor(game('psx', 'x.cue')), 'mednafen_psx_hw', reason: 'the core the game was launched with');

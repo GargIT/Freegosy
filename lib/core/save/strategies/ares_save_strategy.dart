@@ -8,6 +8,7 @@ import '../../platform/platform_info.dart';
 import '../../romm/romm_models.dart';
 import '../../storage/directory_service.dart';
 import '../save_strategy.dart';
+import 'package:freegosy/core/emulator/platform_slugs.dart';
 
 /// Confirmed battery-save extensions (sync these).
 const _batterySaveExtensions = {'.ram', '.eeprom', '.flash', '.chr'};
@@ -184,7 +185,7 @@ class AresSaveStrategy extends SaveStrategy {
     final dataDir = await _getAresDataDir();
     if (dataDir == null) return null;
 
-    final folderName = _platformFolderNames[game.platformSlug?.toLowerCase()];
+    final folderName = _platformFolderNames[canonicalPlatformSlug(game.platformSlug?.toLowerCase() ?? '')];
     if (folderName == null) return null;
 
     final savesDir = p.join(dataDir, 'Saves', folderName);
@@ -237,7 +238,7 @@ class AresSaveStrategy extends SaveStrategy {
     final saveDir = await getSaveDir(game, romPath);
     if (saveDir == null) return [];
 
-    final folderName = _platformFolderNames[game.platformSlug?.toLowerCase()] ?? '';
+    final folderName = _platformFolderNames[canonicalPlatformSlug(game.platformSlug?.toLowerCase() ?? '')] ?? '';
     final platformExtensions = _getSaveExtensionsForPlatform(folderName);
     final logOnly = _isLogOnlyPlatform(folderName);
     final romStem = getRomStem(game).toLowerCase();
@@ -309,7 +310,7 @@ class AresSaveStrategy extends SaveStrategy {
       final dataDir = await _getAresDataDir();
       if (dataDir == null) return false;
 
-      final folderName = _platformFolderNames[game.platformSlug?.toLowerCase()];
+      final folderName = _platformFolderNames[canonicalPlatformSlug(game.platformSlug?.toLowerCase() ?? '')];
       if (folderName == null) return false;
 
       final savesDir = p.join(dataDir, 'Saves', folderName);

@@ -4,6 +4,7 @@ import 'package:freegosy/core/emulator/emulator_strategy.dart';
 import 'package:freegosy/core/platform/platform_info.dart';
 import 'package:freegosy/core/romm/romm_models.dart';
 import 'package:freegosy/core/storage/directory_service.dart';
+import 'package:freegosy/core/emulator/platform_slugs.dart';
 
 /// Maps Freegosy platform slugs to Ares --system full display names.
 /// Source: mia.cpp media[] vector + mia/medium/*.cpp name() overrides.
@@ -84,7 +85,7 @@ class AresStrategy extends EmulatorStrategy {
   /// Returns the Ares --system flag for a given Freegosy platform slug.
   String? getSystemNameForSlug(String? slug) {
     if (slug == null) return null;
-    return kAresSystemNames[slug.toLowerCase()];
+    return kAresSystemNames[canonicalPlatformSlug(slug.toLowerCase())];
   }
 
   /// Builds the full argument list for launching a specific game.

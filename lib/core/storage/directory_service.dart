@@ -14,6 +14,7 @@ import 'package:freegosy/core/emulator/linux_strategies/native_linux_strategy.da
 import 'package:freegosy/core/emulator/linux_strategies/emudeck_strategy.dart';
 import 'package:freegosy/core/emulator/linux_strategies/retrodeck_strategy.dart';
 import 'package:freegosy/core/platform/platform_info.dart';
+import 'package:freegosy/core/emulator/platform_slugs.dart';
 
 class DirectoryService {
   static const Map<String, String> platformFolderCanonicalMap = {
@@ -373,7 +374,7 @@ class DirectoryService {
   };
 
   String _resolveFolderName(String platformSlug) {
-    final lower = platformSlug.toLowerCase();
+    final lower = canonicalPlatformSlug(platformSlug.toLowerCase());
     // 1. EmuDeck aliases take precedence (EmuDeck has its own folder conventions)
     if (linuxSyncPreset == 'emudeck') {
       return _emudeckFolderAliases[lower] ?? lower;

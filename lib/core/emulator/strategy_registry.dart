@@ -26,6 +26,7 @@ import 'package:freegosy/core/storage/directory_service.dart';
 import 'package:freegosy/core/emulator/strategies/windows_strategy.dart';
 import 'package:freegosy/core/emulator/custom_emulator_config.dart';
 import 'package:freegosy/core/emulator/strategies/custom_emulator_strategy.dart';
+import 'package:freegosy/core/emulator/platform_slugs.dart';
 
 class StrategyRegistry {
   final DirectoryService _directoryService;
@@ -131,7 +132,7 @@ class StrategyRegistry {
 
   // ── Per-platform emulator preference ─────────────────────────
 
-  String? getPreferredEmulatorId(String slug) => _slugPreferences[slug];
+  String? getPreferredEmulatorId(String slug) => _slugPreferences[canonicalPlatformSlug(slug)];
 
   void _loadPreferences() {
     for (final key in _prefs.getKeys()) {
@@ -289,6 +290,7 @@ class StrategyRegistry {
 
   EmulatorStrategy? getStrategyForSlug(String platformSlug, {String? gameId}) {
     if (kIsWeb) return null;
+    platformSlug = canonicalPlatformSlug(platformSlug);
 
     // 1. Per-game emulator preference
     if (gameId != null) {
@@ -327,6 +329,7 @@ class StrategyRegistry {
 
   /// Returns all strategies that support a given platform slug.
   List<EmulatorStrategy> getAllStrategiesForSlug(String platformSlug) {
+    platformSlug = canonicalPlatformSlug(platformSlug);
     return _strategies.where((s) => s.supportedSlugs.contains(platformSlug)).toList();
   }
 

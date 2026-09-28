@@ -9,6 +9,7 @@ import 'package:freegosy/core/storage/directory_service.dart';
 import 'package:freegosy/core/emulator/strategy_registry.dart';
 import 'package:freegosy/core/emulator/bios_registry.dart';
 import 'package:freegosy/core/emulator/retroarch_core_list.dart';
+import 'package:freegosy/core/emulator/platform_slugs.dart';
 
 typedef FirmwareProgressCallback = void Function(String fileName, int received, int total);
 
@@ -155,7 +156,7 @@ class FirmwareService {
       final emuSupportedSlugs = _strategyRegistry.getStrategyById(emulatorId)?.supportedSlugs;
 
       for (final platform in platforms) {
-          if (!emuSupportedSlugs!.contains(platform.slug) | platform.firmware.isEmpty) continue;
+          if (!emuSupportedSlugs!.contains(canonicalPlatformSlug(platform.slug)) | platform.firmware.isEmpty) continue;
           final biosSpec = _resolveBiosSpec(emulatorId, platform.slug);
           for (final firmware in platform.firmware) {
             await _downloadAndPlaceFirmware(firmware, biosDir, emulatorId: emulatorId, biosSpec: biosSpec, onProgress: onProgress);
