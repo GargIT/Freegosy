@@ -38,9 +38,9 @@ void main() {
       expect(login?.hardcore, isTrue);
     });
 
-    test('hardcore defaults to off', () async {
+    test('hardcore defaults to unset', () async {
       final prefs = InMemoryAppPreferences({kRaUsernameKey: 'P', secureKey(kRaConnectTokenSecureKey): 't'});
-      expect((await RetroAchievementsEmulatorLogin.load(prefs))?.hardcore, isFalse);
+      expect((await RetroAchievementsEmulatorLogin.load(prefs))?.hardcore, isNull);
     });
   });
 
@@ -71,10 +71,20 @@ void main() {
   });
 
   group('toRetroArchConfig', () {
-    test('writes softcore config by default', () {
+    test('disables config_save_on_exit so the token cannot leak into retroarch.cfg', () {
       final cfg = const RetroAchievementsEmulatorLogin(username: 'u', token: 't').toRetroArchConfig();
-      expect(cfg, contains('cheevos_hardcore_mode_enable = "false"'));
+      expect(cfg, contains('config_save_on_exit = "false"'));
       expect(cfg, endsWith('\n'));
+    });
+
+    test('omits hardcore line when unset, leaving the user\'s own setting alone', () {
+      final cfg = const RetroAchievementsEmulatorLogin(username: 'u', token: 't').toRetroArchConfig();
+      expect(cfg, isNot(contains('cheevos_hardcore_mode_enable')));
+    });
+
+    test('writes hardcore line once the user has set it explicitly', () {
+      final cfg = const RetroAchievementsEmulatorLogin(username: 'u', token: 't', hardcore: false).toRetroArchConfig();
+      expect(cfg, contains('cheevos_hardcore_mode_enable = "false"'));
     });
 
     test('strips quotes and line breaks so values cannot inject cfg lines', () {

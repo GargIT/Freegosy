@@ -411,8 +411,13 @@ class _SettingsRetroAchievementsSectionState extends ConsumerState<SettingsRetro
             child: SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Hardcore mode', style: TextStyle(fontSize: 14)),
-              subtitle: const Text('No save states, rewind or cheats; unlocks count as hardcore.', style: TextStyle(fontSize: 12)),
-              value: emulatorLogin.hardcore,
+              subtitle: Text(
+                emulatorLogin.hardcore == null
+                    ? "Using RetroArch's own setting. No save states, rewind or cheats; unlocks count as hardcore."
+                    : 'No save states, rewind or cheats; unlocks count as hardcore.',
+                style: const TextStyle(fontSize: 12),
+              ),
+              value: emulatorLogin.hardcore ?? false,
               onChanged: (v) => ref.read(retroAchievementsSetHardcoreProvider)(v),
             ),
           ),

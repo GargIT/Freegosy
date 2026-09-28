@@ -161,6 +161,8 @@ final retroAchievementsDisconnectProvider = Provider<Future<void> Function()>((r
 
 final retroAchievementsSetHardcoreProvider = Provider<Future<void> Function(bool)>((ref) {
   return (enabled) async {
+    // Once the user touches this toggle, Freegosy owns cheevos_hardcore_mode_enable
+    // going forward — there's no way back to "unset" from Settings.
     await ref.read(appPreferencesProvider).setBool(kRaHardcoreKey, enabled);
     ref.invalidate(retroAchievementsEmulatorLoginProvider);
   };

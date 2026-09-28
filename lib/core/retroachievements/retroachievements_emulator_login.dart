@@ -22,9 +22,14 @@ const kRetroArchAchievementsConfigFileName = 'retroarch_achievements.cfg';
 class RetroAchievementsEmulatorLogin {
   final String username;
   final String token;
-  final bool hardcore;
 
-  const RetroAchievementsEmulatorLogin({required this.username, required this.token, this.hardcore = false});
+  /// Null until the user has explicitly set the Settings toggle: the
+  /// `cheevos_hardcore_mode_enable` line is then omitted from the
+  /// appendconfig, so RetroArch's own existing setting wins instead of
+  /// being silently forced off.
+  final bool? hardcore;
+
+  const RetroAchievementsEmulatorLogin({required this.username, required this.token, this.hardcore});
 
   /// Null when no account is connected or it was connected without a
   /// password (Web-API-only), in which case emulators are left untouched.
@@ -37,7 +42,7 @@ class RetroAchievementsEmulatorLogin {
     return RetroAchievementsEmulatorLogin(
       username: username,
       token: token,
-      hardcore: prefs.getBool(kRaHardcoreKey) ?? false,
+      hardcore: prefs.getBool(kRaHardcoreKey),
     );
   }
 
@@ -57,16 +62,26 @@ class RetroAchievementsEmulatorLogin {
 
   /// RetroArch config overrides, passed via `--appendconfig` so the user's
   /// own retroarch.cfg is never edited by Freegosy.
+  ///
+  /// Also forces `config_save_on_exit = "false"` for the session: RetroArch
+  /// merges `--appendconfig` into its in-memory config, and with the user's
+  /// own `config_save_on_exit` (true by default) it would write that merged
+  /// config — including this RA token — back into the user's real
+  /// retroarch.cfg on quit. Disabling the save keeps the token confined to
+  /// this appendconfig file, which disconnect deletes.
   String toRetroArchConfig() {
     // Drop quotes and line breaks so a value can't end its string or add cfg lines.
     String quote(String v) => '"${v.replaceAll(RegExp(r'["\r\n]'), '')}"';
     return [
+      'config_save_on_exit = "false"',
       'cheevos_enable = "true"',
       'cheevos_username = ${quote(username)}',
       // Empty so RetroArch signs in with the token rather than a stale password.
       'cheevos_password = ""',
       'cheevos_token = ${quote(token)}',
-      'cheevos_hardcore_mode_enable = "$hardcore"',
+      // Omitted when unset so an existing hardcore setting in the user's own
+      // retroarch.cfg isn't silently overridden until they opt in here.
+      if (hardcore != null) 'cheevos_hardcore_mode_enable = "$hardcore"',
       '',
     ].join('\n');
   }

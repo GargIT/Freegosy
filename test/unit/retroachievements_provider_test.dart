@@ -72,7 +72,7 @@ void main() {
       final login = await container.read(retroAchievementsEmulatorLoginProvider.future);
       expect(login?.username, 'Player');
       expect(login?.token, 'tok123');
-      expect(login?.hardcore, isFalse);
+      expect(login?.hardcore, isNull);
     });
 
     test('password and key: validates both', () async {
