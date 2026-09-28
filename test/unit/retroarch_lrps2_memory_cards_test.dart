@@ -7,7 +7,7 @@ import 'package:freegosy/core/platform/platform_info.dart';
 import 'package:freegosy/core/romm/romm_models.dart';
 import 'package:freegosy/core/save/ps2_memory_card.dart';
 import 'package:freegosy/core/save/save_strategy.dart';
-import 'package:freegosy/core/save/strategies/lrps2_memory_cards.dart';
+import 'package:freegosy/core/save/strategies/ps2_save_folders.dart';
 import 'package:freegosy/core/save/strategies/retroarch_save_strategy.dart';
 import 'package:mockito/mockito.dart';
 import 'package:path/path.dart' as p;
@@ -294,26 +294,26 @@ void main() {
     expect(after['BASLUS-20851AC5'], filesOf(ac5));
   });
 
-  group('Lrps2MemoryCards', () {
-    test('usesSharedCards: the first file that sets it wins; shared by default', () {
-      expect(Lrps2MemoryCards.usesSharedCards([]), isTrue);
-      expect(Lrps2MemoryCards.usesSharedCards(['x = "1"\npcsx2_shared_memory_cards = "disabled"']), isFalse);
+  group('Ps2SaveFolders', () {
+    test('lrps2UsesSharedCards: the first file that sets it wins; shared by default', () {
+      expect(Ps2SaveFolders.lrps2UsesSharedCards([]), isTrue);
+      expect(Ps2SaveFolders.lrps2UsesSharedCards(['x = "1"\npcsx2_shared_memory_cards = "disabled"']), isFalse);
       expect(
-          Lrps2MemoryCards.usesSharedCards(
+          Ps2SaveFolders.lrps2UsesSharedCards(
               ['pcsx2_shared_memory_cards = "enabled"', 'pcsx2_shared_memory_cards = "disabled"']),
           isTrue);
     });
 
     test('isSaveOf matches the serial after the region prefix', () {
-      expect(Lrps2MemoryCards.isSaveOf('BASLUS-20851AC5', 'SLUS-20851'), isTrue);
-      expect(Lrps2MemoryCards.isSaveOf('BESCES-52438GAMEDATA', 'SCES-52438'), isTrue);
-      expect(Lrps2MemoryCards.isSaveOf('BASLUS-20852AC5', 'SLUS-20851'), isFalse);
-      expect(Lrps2MemoryCards.isSaveOf('BASLUS', 'SLUS-20851'), isFalse);
-      expect(Lrps2MemoryCards.isSaveOf('baslus_20851ac5', 'slus-20851'), isTrue);
+      expect(Ps2SaveFolders.isSaveOf('BASLUS-20851AC5', 'SLUS-20851'), isTrue);
+      expect(Ps2SaveFolders.isSaveOf('BESCES-52438GAMEDATA', 'SCES-52438'), isTrue);
+      expect(Ps2SaveFolders.isSaveOf('BASLUS-20852AC5', 'SLUS-20851'), isFalse);
+      expect(Ps2SaveFolders.isSaveOf('BASLUS', 'SLUS-20851'), isFalse);
+      expect(Ps2SaveFolders.isSaveOf('baslus_20851ac5', 'slus-20851'), isTrue);
     });
 
     test('savesFromUpload skips states, loose files and nested folders', () {
-      final saves = Lrps2MemoryCards.savesFromUpload(
+      final saves = Ps2SaveFolders.savesFromUpload(
           zipOf({
             'Ace Combat 5 (USA).state1': [1],
             'loose.bin': [1],

@@ -22,11 +22,13 @@ For reference when reading the matrices:
 
 - **Upload**: the emulator's save strategy (`lib/core/save/strategies/`) lists
   the files for the game (`getSaveFilesWithScreenshots`). One file is uploaded
-  under its own name; several go up as one zip. Game saves are tagged
-  `emulator=freegosy` on RomM.
+  under its own name; several go up as one zip. Game saves are tagged on RomM
+  with the emulator that made them: the RetroArch core without `_libretro`
+  (e.g. `pcsx_rearmed`, as RomM's web player and Argosy name it), otherwise the
+  emulator (e.g. `pcsx2`, `duckstation`), in the `freegosy` slot.
 - **Download**: Freegosy takes RomM's **newest save for the game, whoever
-  uploaded it** (`RommService.getLatestSave`; the `freegosy` tag only matters
-  when pruning old saves), and hands it to the strategy of the emulator on this
+  uploaded it** (`RommService.getLatestSave`; neither the tag nor the slot is
+  checked), and hands it to the strategy of the emulator on this
   machine (`restoreSave`), which decides where, and under what name, it goes.
 - So for a save to cross emulators, the **receiving** strategy must recognise
   the uploaded file (name and format) and write it where its emulator reads it.
@@ -220,11 +222,15 @@ another one.
 - **PCSX2, folder card**: uploads only this game's save folders (the same
   shape as Argosy). Restore accepts `Mcd00N.ps2/…` bundles, superblock cards
   from other clients and bare save folders, and writes them into the first
-  local folder card (or `Mcd001.ps2`).
-- **PCSX2, file card**: uploads the **whole 8 MB card**, with every game's
-  saves on it, as this game's save. Restoring it on another PC replaces the
-  whole local card, rolling back every other game on it. This is the problem
-  PS1 shared cards had before per-game extraction.
+  local folder card (or `Mcd001.ps2`). A whole file card from RomM has this
+  game's saves taken off it and written in as folders.
+- **PCSX2, file card**: uploads only this game's saves, taken off the card
+  as save folders (local backups keep the whole card). A pull accepts save
+  folders, whole folder cards and whole file cards, and merges only this
+  game's saves into the card that holds them, after a `.bak`; the pull
+  finishes before PCSX2 starts. Before, the whole 8 MB card went up as this
+  game's save, and restoring it on another PC rolled back every other game
+  on it.
 - **RetroArch, PS2 (LRPS2)**: reads LRPS2's cards (the shared ones in the
   system folder, or the game's own with *Shared Memory Cards* off) and
   uploads only this game's save folders, found by its serial. A pull accepts
@@ -239,15 +245,15 @@ another one.
 | Made in → played in | Result | Why |
 |---|---|---|
 | PCSX2 folder card ↔ PCSX2 folder card | ✅ | Only this game's folders move. |
-| PCSX2 file card ↔ PCSX2 file card | ⚠️ | Works for the game, but the whole card moves and other games on it are rolled back. |
-| PCSX2 folder card ↔ PCSX2 file card (different PCs) | ❌ | From code, not verified: save folders can't be written into a card that is a file, and a card file can't replace a card that is a directory. |
-| PCSX2 folder card ↔ Argosy | ✅ | From code: both sides upload and restore this game's save folders. Not verified by hand. |
-| PCSX2 file card → Argosy | ❌ | Argosy only handles folder cards. |
+| PCSX2 file card ↔ PCSX2 file card | ✅ | Only this game's save folders move; other games on the card stay. |
+| PCSX2 folder card ↔ PCSX2 file card (different PCs) | ✅ | Both upload save folders; a file card takes them onto the card, a folder card as folders (tested file → folder → file). A folder card receiving them gets no `_pcsx2_index`, which PCSX2 accepts (see gap 6). |
+| PCSX2 folder card ↔ Argosy | ✅ verified | Both sides upload and restore this game's save folders; checked by hand both ways. |
+| PCSX2 file card ↔ Argosy | ✅ | From code: the file card's save folders go into Argosy's folder card, and Argosy's save folders onto the file card. |
 | RetroArch (LRPS2) ↔ RetroArch (LRPS2) | ✅ | Only this game's save folders move; checked on a copy of a real card (other games' saves unchanged, mymcplus finds no errors). Not yet verified in the app by hand. |
 | PCSX2 folder card → RetroArch (LRPS2) | ✅ | From code: the game's save folders are merged into LRPS2's card; PCSX2's `_pcsx2_index` files are left out. |
 | PCSX2 file card → RetroArch (LRPS2) | ✅ | From code: only this game's saves are taken from the whole uploaded card. |
-| RetroArch (LRPS2) → PCSX2 folder card | ⚠️ | From code: the save folders land in the folder card, without a `_pcsx2_index`; not verified that PCSX2 accepts that. |
-| RetroArch (LRPS2) → PCSX2 file card | ❌ | Save folders can't be written into a card that is a file yet (see gap 3). |
+| RetroArch (LRPS2) → PCSX2 folder card | ✅ | From code: the save folders land in the folder card, without a `_pcsx2_index`, which PCSX2 accepts (see gap 6). |
+| RetroArch (LRPS2) → PCSX2 file card | ✅ | The save folders are merged into PCSX2's file card. |
 | RetroArch (LRPS2) ↔ Argosy | ✅ | From code: both sides move this game's save folders. |
 | Anything ↔ Play! | ❌ | Not supported by Freegosy. |
 
@@ -263,21 +269,25 @@ another one.
 3. **Done: a PS2 file-card reader/writer** (`Ps2MemoryCard`): reads a file
    card's file system, extracts one game's save directories and writes them
    into another card, keeping everything else byte for byte. Checked against
-   mymcplus, an independent implementation. **To do: use it for PCSX2 file
-   cards**, which still upload the whole card: take this game's saves off the
-   card as save folders on push, and merge incoming save folders (from folder
-   cards, LRPS2 or Argosy) into the file card on pull. That also closes the
-   folder card ↔ file card gap.
-4. **Later: Play!**: its directory cards hold the same save folders, so it
+   mymcplus, an independent implementation.
+4. **Done (PCSX2): file cards** sync this game's save folders instead of the
+   whole card, and whole-card uploads land in folder cards as folders, which
+   closes the folder card ↔ file card gap. With this every PS2 client
+   Freegosy knows exchanges saves in one shape: the game's save folders.
+5. **Later: Play!**: its directory cards hold the same save folders, so it
    would reuse the same shape.
-5. **Unverified**: PCSX2 folder card ↔ Argosy by hand; whether PCSX2 accepts
-   save folders restored without their `_pcsx2_index` (LRPS2 uploads have
-   none).
+6. **Verified**: PCSX2 folder card ↔ Argosy, by hand both ways. A save folder
+   without its `_pcsx2_index` (file card and LRPS2 uploads have none) is fine
+   from source: PCSX2's `MemoryCardFolder.cpp` supports "legacy folder
+   memcards without the index file", taking the files' times from the host
+   and listing them in directory order.
 
 ### Sources
 
 - PCSX2: files of a real install (`inis/PCSX2.ini`, `memcards/Mcd001.ps2/`)
   and the PCSX2 strategy (`lib/core/save/strategies/pcsx2_save_strategy.dart`).
+- [PCSX2/pcsx2](https://github.com/PCSX2/pcsx2):
+  `pcsx2/SIO/Memcard/MemoryCardFolder.cpp` (folder cards, `_pcsx2_index`).
 - [libretro/ps2](https://github.com/libretro/ps2) (LRPS2):
   `libretro/main.cpp` (`retro_load_game`, `library_name`),
   `libretro/libretro_core_options.h` (`pcsx2_shared_memory_cards`),

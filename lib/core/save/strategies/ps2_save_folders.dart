@@ -5,27 +5,27 @@ import 'package:path/path.dart' as p;
 
 import '../ps2_memory_card.dart';
 
-/// PS2 saves for RetroArch's PS2 core, LRPS2, which keeps them on PCSX2
-/// "file" memory cards: by default two cards shared by every game in the
-/// system folder (`pcsx2/memcards/Mcd001.ps2`, `Mcd002.ps2`), or, with its
-/// *Shared Memory Cards* option off, one card per game in the save folder
-/// (`<content>.ps2`).
-///
-/// A game's saves go to RomM as its **save folders** (e.g.
+/// PS2 saves as they move through RomM: a game's **save folders** (e.g.
 /// `BASLUS-20851AC5/…`), the shape PCSX2 folder cards and Argosy use, so
-/// every PS2 client can read them. Pulling puts them back on the card and
-/// leaves the other games' saves as they are.
-class Lrps2MemoryCards {
-  Lrps2MemoryCards._();
+/// every PS2 client can read them. The emulators that keep saves on "file"
+/// memory cards (PCSX2's `Mcd00N.ps2` image, RetroArch's LRPS2) take the
+/// game's saves off the card to upload them, and put downloaded ones back on
+/// the card, leaving the other games' saves as they are.
+///
+/// LRPS2 keeps its cards in RetroArch's system folder, shared by every game
+/// (`pcsx2/memcards/Mcd001.ps2`, `Mcd002.ps2`), or, with its *Shared Memory
+/// Cards* option off, one card per game in the save folder (`<content>.ps2`).
+class Ps2SaveFolders {
+  Ps2SaveFolders._();
 
   /// The option that picks shared or per-game cards, and its default.
-  static const sharedCardsOption = 'pcsx2_shared_memory_cards';
+  static const lrps2SharedCardsOption = 'pcsx2_shared_memory_cards';
 
   /// Whether LRPS2 uses its shared cards, from the contents of the core
   /// option files that apply, most specific first (the game's, its folder's,
   /// the core's, RetroArch's global one). Shared unless one says otherwise.
-  static bool usesSharedCards(List<String> optionFiles) {
-    final line = RegExp('^\\s*$sharedCardsOption\\s*=\\s*"?(enabled|disabled)"?', multiLine: true);
+  static bool lrps2UsesSharedCards(List<String> optionFiles) {
+    final line = RegExp('^\\s*$lrps2SharedCardsOption\\s*=\\s*"?(enabled|disabled)"?', multiLine: true);
     for (final contents in optionFiles) {
       final m = line.firstMatch(contents);
       if (m != null) return m.group(1) == 'enabled';
