@@ -123,6 +123,7 @@ void main() {
       when(mockRommService.uploadSave(
         any,
         any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -182,6 +183,7 @@ void main() {
       when(mockRommService.uploadSave(
         any,
         any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),

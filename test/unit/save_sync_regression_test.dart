@@ -101,6 +101,7 @@ void main() {
 
       when(mockRommService.uploadSave(
         any, any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -117,6 +118,7 @@ void main() {
       verify(mockRommService.uploadSave(
         'slot1',
         any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -141,6 +143,7 @@ void main() {
       String? capturedSlot;
       when(mockRommService.uploadSave(
         any, any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -179,6 +182,7 @@ void main() {
       int? capturedLimit;
       when(mockRommService.uploadSave(
         any, any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -217,6 +221,7 @@ void main() {
       bool? capturedOverwrite;
       when(mockRommService.uploadSave(
         any, any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -280,6 +285,7 @@ void main() {
 
       when(mockRommService.uploadSave(
         any, any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -375,6 +381,7 @@ void main() {
 
       when(mockRommService.uploadSave(
         any, any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -392,6 +399,7 @@ void main() {
       // uploadSave should NOT have been called
       verifyNever(mockRommService.uploadSave(
         any, any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -415,6 +423,7 @@ void main() {
 
       when(mockRommService.uploadSave(
         any, any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
@@ -431,6 +440,7 @@ void main() {
 
       verify(mockRommService.uploadSave(
         any, any,
+        emulator: anyNamed('emulator'),
         slot: anyNamed('slot'),
         deviceId: anyNamed('deviceId'),
         autocleanup: anyNamed('autocleanup'),
