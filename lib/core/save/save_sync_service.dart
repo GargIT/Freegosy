@@ -77,7 +77,7 @@ class SaveSyncService {
   late final AresSaveStrategy _ares;
 
   SaveSyncService(this._rommService, this._directoryService, this._strategyRegistry, this._prefs) {
-    _retroarch = RetroArchSaveStrategy(_directoryService);
+    _retroarch = RetroArchSaveStrategy(_directoryService, prefs: _prefs);
     _dolphin = DolphinSaveStrategy(_directoryService);
     _eden = EdenSaveStrategy(_directoryService, onMappingResolved: saveMappedFolder);
     _ryujinx = RyujinxSaveStrategy(onMappingResolved: saveMappedFolder);

@@ -13,7 +13,8 @@ emulator names its files**, **the interop matrix**, **gaps and
 recommendations**. Findings are marked **verified** (checked against real
 files or by hand) or **from source** (read in the emulator's code).
 
-Platforms covered so far: [PlayStation (PS1)](#playstation-ps1).
+Platforms covered so far: [PlayStation (PS1)](#playstation-ps1),
+[PlayStation 2 (PS2)](#playstation-2-ps2).
 
 ## How Freegosy moves a game save
 
@@ -147,3 +148,143 @@ The other rows follow from the formats and the clients' code.
   `src/libretro/libretro_core_options.h`, `libretro_host_interface.cpp`.
 - [rommapp/argosy-launcher](https://github.com/rommapp/argosy-launcher):
   `SavePathResolver.kt`, `SaveDownloader.kt`, `SavePathRegistry.kt`.
+
+## PlayStation 2 (PS2)
+
+### Format
+
+PS2 memory cards come in two shapes that hold the same saves.
+
+**File card**: an **8,650,752-byte image** (16,384 pages of 512 data bytes +
+16 ECC bytes), starting with the superblock `Sony PS2 Memory Card Format
+1.2.0.0`. Verified: PCSX2's `Mcd001.ps2` and LRPS2's
+`system/pcsx2/memcards/Mcd001.ps2` on a real install are both this. Inside is
+a FAT-style file system: each save is a top-level **directory** named
+`<region prefix><serial><suffix>`, e.g. `BASLUS-20502` or
+`BASLUS-21026-PROFILE` (`BA` = US, `BE` = Europe, `BI` = Japan/Asia). One card
+holds every game's saves. Unlike a PS1 card there is no simple block list:
+moving one game's saves in or out means reading and writing that file system
+(clusters, FAT, directory entries, ECC).
+
+**PCSX2 folder card**: a host **directory** with the card's name (e.g.
+`memcards/Mcd001.ps2/`), holding an 8 KB `_pcsx2_superblock` and **one folder
+per save**, named exactly like the save's directory on a file card. Each
+folder holds that save's files plus a `_pcsx2_index` (PCSX2's record of
+timestamps, attributes and order). Verified on a real install. With
+`McdFolderAutoManage = true` (the default) PCSX2 shows the running game only
+its own folders. PCSX2's Memory Cards settings can convert a card between
+the two types.
+
+**Play!**: each card is a plain host directory (`vfs/mc0`, `vfs/mc1`) with one
+folder per save and no PCSX2 metadata. From source.
+
+So a save folder of a folder card, a save directory of a file card, and a
+save folder of a Play! card are the **same files**; only the container
+differs.
+
+### How each emulator names its cards
+
+**PCSX2 (standalone)**: in `memcards/` (next to the exe in portable mode),
+set by `[MemoryCards] SlotN_Filename` in `inis/PCSX2.ini`, overridable per
+game in `gamesettings/`. Verified.
+
+| Slot | Default | Notes |
+|---|---|---|
+| 1 | `Mcd001.ps2` | File or folder card under the same name; PCSX2 creates a **file** card by default. |
+| 2 | `Mcd002.ps2` | An empty filename means no card in slot 2. |
+| Multitap | `Mcd-MultitapN-SlotNN.ps2` | Off by default. |
+
+Every game shares the same card unless a per-game setting points it at
+another one.
+
+**RetroArch PS2 cores**: from source, plus the verified files above.
+
+| Core | Default | Other setting |
+|---|---|---|
+| LRPS2 (`pcsx2_libretro`, library name **`LRPS2`**) | *Shared Memory Cards* on: **file** cards `system/pcsx2/memcards/Mcd001.ps2` and `Mcd002.ps2`, shared by every game, **outside the save folder** | Off: `<content>.ps2` in RetroArch's save folder (`saves/LRPS2/` when *Sort Saves into Folders by Core* is on); slot 2 is disabled |
+| Play! (`play_libretro`) | Directory cards `vfs/mc0` and `vfs/mc1` under the core's data path | — |
+
+**Argosy (Android)**: from source (`PlatformSaveHandlerRegistry.kt`,
+`SavePathRegistry.kt`).
+
+- PS2 only through the Android PCSX2 forks (NetherSX2, AetherSX2, PCSX2),
+  in **folder card** mode, in their `files/memcards` folder. File cards are
+  not handled.
+- **Upload**: a zip of **only this game's save folders**, rooted at the
+  folders themselves (e.g. `BASLUS-20502/…`).
+- **Download**: accepts that shape and a card-rooted zip, extracting only this
+  game's folders into the card. It refuses when several cards hold the game.
+
+### What Freegosy does today
+
+- **PCSX2, folder card**: uploads only this game's save folders (the same
+  shape as Argosy). Restore accepts `Mcd00N.ps2/…` bundles, superblock cards
+  from other clients and bare save folders, and writes them into the first
+  local folder card (or `Mcd001.ps2`).
+- **PCSX2, file card**: uploads the **whole 8 MB card**, with every game's
+  saves on it, as this game's save. Restoring it on another PC replaces the
+  whole local card, rolling back every other game on it. This is the problem
+  PS1 shared cards had before per-game extraction.
+- **RetroArch, PS2 (LRPS2)**: reads LRPS2's cards (the shared ones in the
+  system folder, or the game's own with *Shared Memory Cards* off) and
+  uploads only this game's save folders, found by its serial. A pull accepts
+  save folders, whole folder cards and whole file cards, and merges only this
+  game's saves into the card that holds them, after a `.bak`. Before this, the
+  strategy looked in a `PCSX2` save folder that doesn't exist, so nothing was
+  uploaded, and restores could land in another core's folder (seen on a real
+  install: PS2 cards in `saves/Mupen64Plus-Next/`; fixed in #119).
+
+### Interop matrix
+
+| Made in → played in | Result | Why |
+|---|---|---|
+| PCSX2 folder card ↔ PCSX2 folder card | ✅ | Only this game's folders move. |
+| PCSX2 file card ↔ PCSX2 file card | ⚠️ | Works for the game, but the whole card moves and other games on it are rolled back. |
+| PCSX2 folder card ↔ PCSX2 file card (different PCs) | ❌ | From code, not verified: save folders can't be written into a card that is a file, and a card file can't replace a card that is a directory. |
+| PCSX2 folder card ↔ Argosy | ✅ | From code: both sides upload and restore this game's save folders. Not verified by hand. |
+| PCSX2 file card → Argosy | ❌ | Argosy only handles folder cards. |
+| RetroArch (LRPS2) ↔ RetroArch (LRPS2) | ✅ | Only this game's save folders move; checked on a copy of a real card (other games' saves unchanged, mymcplus finds no errors). Not yet verified in the app by hand. |
+| PCSX2 folder card → RetroArch (LRPS2) | ✅ | From code: the game's save folders are merged into LRPS2's card; PCSX2's `_pcsx2_index` files are left out. |
+| PCSX2 file card → RetroArch (LRPS2) | ✅ | From code: only this game's saves are taken from the whole uploaded card. |
+| RetroArch (LRPS2) → PCSX2 folder card | ⚠️ | From code: the save folders land in the folder card, without a `_pcsx2_index`; not verified that PCSX2 accepts that. |
+| RetroArch (LRPS2) → PCSX2 file card | ❌ | Save folders can't be written into a card that is a file yet (see gap 3). |
+| RetroArch (LRPS2) ↔ Argosy | ✅ | From code: both sides move this game's save folders. |
+| Anything ↔ Play! | ❌ | Not supported by Freegosy. |
+
+### Gaps and recommendations
+
+1. **Done (RetroArch, every platform): the "newest core folder" fallback**
+   (#119). Core folders use each core's `library_name` (`LRPS2` for PS2),
+   and a first restore goes to the game's own core folder.
+2. **Done (RetroArch, PS2): LRPS2's memory cards.** The strategy reads the
+   shared cards in `system/pcsx2/memcards/` (or the game's own
+   `<content>.ps2` with *Shared Memory Cards* off) and syncs only this game's
+   save folders, merging them back without touching other games' saves.
+3. **Done: a PS2 file-card reader/writer** (`Ps2MemoryCard`): reads a file
+   card's file system, extracts one game's save directories and writes them
+   into another card, keeping everything else byte for byte. Checked against
+   mymcplus, an independent implementation. **To do: use it for PCSX2 file
+   cards**, which still upload the whole card: take this game's saves off the
+   card as save folders on push, and merge incoming save folders (from folder
+   cards, LRPS2 or Argosy) into the file card on pull. That also closes the
+   folder card ↔ file card gap.
+4. **Later: Play!**: its directory cards hold the same save folders, so it
+   would reuse the same shape.
+5. **Unverified**: PCSX2 folder card ↔ Argosy by hand; whether PCSX2 accepts
+   save folders restored without their `_pcsx2_index` (LRPS2 uploads have
+   none).
+
+### Sources
+
+- PCSX2: files of a real install (`inis/PCSX2.ini`, `memcards/Mcd001.ps2/`)
+  and the PCSX2 strategy (`lib/core/save/strategies/pcsx2_save_strategy.dart`).
+- [libretro/ps2](https://github.com/libretro/ps2) (LRPS2):
+  `libretro/main.cpp` (`retro_load_game`, `library_name`),
+  `libretro/libretro_core_options.h` (`pcsx2_shared_memory_cards`),
+  `pcsx2/VMManager.cpp` (`LoadSettings`); a real RetroArch install
+  (`system/pcsx2/memcards/`).
+- [jpd002/Play-](https://github.com/jpd002/Play-): `Source/PS2VM.cpp`
+  (`PREF_PS2_MC0_DIRECTORY`).
+- [rommapp/argosy-launcher](https://github.com/rommapp/argosy-launcher):
+  `PlatformSaveHandlerRegistry.kt` (`Ps2FolderHandler`),
+  `SavePathRegistry.kt`.

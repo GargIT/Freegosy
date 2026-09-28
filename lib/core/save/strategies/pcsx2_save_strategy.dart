@@ -26,7 +26,7 @@ class Pcsx2SaveStrategy extends SaveStrategy with StateSyncCapable {
   /// PS2's `SYSTEM.CNF` boot line, e.g. `BOOT2 = cdrom0:\SLUS_123.45;1` —
   /// the "2" distinguishes it from PS1's `BOOT =` line so a PS1 BIOS won't
   /// try to boot a PS2 disc.
-  static final _bootLinePattern = RegExp(
+  static final bootLinePattern = RegExp(
       r'BOOT2\s*=\s*cdrom[^:]*:\\?([A-Z]{4}[_-]\d{3}[.]\d{2})',
       caseSensitive: false);
 
@@ -44,7 +44,7 @@ class Pcsx2SaveStrategy extends SaveStrategy with StateSyncCapable {
   /// Returns null if the serial cannot be determined.
   Future<String?> _extractSerial(String romPath) => _serialExtractionService.extractSerial(
         romPath: romPath,
-        bootLinePattern: _bootLinePattern,
+        bootLinePattern: bootLinePattern,
         chdmanCandidates: [(emulatorId: 'pcsx2', exeName: _getEmuExe())],
       );
 
