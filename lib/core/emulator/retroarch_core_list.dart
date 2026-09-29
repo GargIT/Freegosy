@@ -848,7 +848,7 @@ const List<RetroArchCore> kRetroArchCores = [
   RetroArchCore(
     id: 'o2em_libretro',
     displayName: 'O2EM',
-    platforms: ['odyssey2', 'magnavox Odyssey 2'],
+    platforms: ['odyssey2'],
     category: CoreCategory.computer,
   ),
   RetroArchCore(
