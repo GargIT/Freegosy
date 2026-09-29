@@ -95,6 +95,27 @@ jobs:
 
           # Build AppImage
           ARCH=x86_64 /usr/local/bin/appimagetool --appimage-extract-and-run AppDir Freegosy-linux-x86_64.AppImage
+      - name: Verify AppImage launches
+        # Catches what AppImageHub's own test runner caught in #7845: a build
+        # that links against a newer glibc/libstdc++ than AppImages are
+        # supposed to require, so it dies on startup with no window. A quick
+        # headless launch here fails release before the AppImage ships,
+        # instead of failing silently on some other machine or distro.
+        run: |
+          sudo apt-get install -y xvfb dbus-x11
+          chmod +x Freegosy-linux-x86_64.AppImage
+          xvfb-run --auto-servernum ./Freegosy-linux-x86_64.AppImage --appimage-extract-and-run > appimage-launch.log 2>&1 &
+          APID=$!
+          sleep 10
+          if kill -0 $APID 2>/dev/null; then
+            echo "AppImage is still running after 10s - launch OK"
+            kill $APID 2>/dev/null || true
+            wait $APID 2>/dev/null || true
+          else
+            echo "AppImage exited within 10 seconds; launch log follows:"
+            cat appimage-launch.log
+            exit 1
+          fi
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
         with:
