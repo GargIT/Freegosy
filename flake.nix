@@ -13,12 +13,12 @@
       packages = forAllSystems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          version = "0.6.0";
+          version = "0.6.1";
           pname = "freegosy";
 
           src = pkgs.fetchurl {
             url = "https://github.com/abduznik/Freegosy/releases/download/v${version}/Freegosy-linux-x86_64.AppImage";
-            hash = "sha256-KM+VBLPwLd2CDxAyuJTeXAnaiVFLnTmwBi9q/Vhq05E=";
+            hash = "sha256-WCkwarDDFjZ4W8df49cHDMFcIOKwUKZ78FXLtMzbi2E=";
           };
 
           appimageContents = pkgs.appimageTools.extractType1 { inherit pname version src; };
