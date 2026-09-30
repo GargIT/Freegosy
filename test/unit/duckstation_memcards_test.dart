@@ -4,7 +4,7 @@ import 'package:archive/archive_io.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:freegosy/core/emulator/strategy_registry.dart';
 import 'package:freegosy/core/romm/romm_models.dart';
-import 'package:freegosy/core/save/ps1_memory_card.dart';
+import 'package:freegosy/core/save/formats/ps1_memory_card.dart';
 import 'package:freegosy/core/save/save_strategy.dart';
 import 'package:freegosy/core/save/save_sync_service.dart';
 import 'package:freegosy/core/save/strategies/duckstation_config.dart';

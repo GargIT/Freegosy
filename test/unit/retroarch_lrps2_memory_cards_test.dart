@@ -5,7 +5,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:freegosy/core/platform/platform_info.dart';
 import 'package:freegosy/core/romm/romm_models.dart';
-import 'package:freegosy/core/save/ps2_memory_card.dart';
+import 'package:freegosy/core/save/formats/ps2_memory_card.dart';
 import 'package:freegosy/core/save/save_strategy.dart';
 import 'package:freegosy/core/save/strategies/ps2_save_folders.dart';
 import 'package:freegosy/core/save/strategies/retroarch_save_strategy.dart';
