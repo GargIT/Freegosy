@@ -73,7 +73,7 @@ class DownloadedGamesCache extends StateNotifier<Map<String, bool>> {
     final mappingService = mappingServiceAsync.value!;
     final metadataCache = metadataCacheAsync.value!;
     final mappings = mappingService.getMappings();
-    final romsRoot = _ref.read(directoryServiceProvider).asData?.value.romsRootPath;
+    final romsRoot = _ref.read(directoryServiceProvider).asData?.value?.romsRootPath;
     final Map<String, bool> newState = {};
     
     final Set<String> missingMetadataIds = {};

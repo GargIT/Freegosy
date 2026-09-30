@@ -5,6 +5,7 @@ import 'package:freegosy/core/romm/rom_scanner_service.dart';
 import 'package:freegosy/core/romm/romm_service.dart';
 import 'package:freegosy/core/storage/directory_service.dart';
 import 'package:freegosy/core/storage/rom_mapping_service.dart';
+import 'package:freegosy/core/storage/safe_fs.dart';
 import 'package:hive/hive.dart';
 import 'package:path/path.dart' as p;
 
