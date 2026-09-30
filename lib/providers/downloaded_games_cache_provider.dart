@@ -3,8 +3,9 @@ import '../core/romm/romm_models.dart';
 import 'download_provider.dart';
 import 'romm_provider.dart';
 import 'dart:async';
-import 'dart:io' as io;
+import 'package:path/path.dart' as p;
 import 'package:flutter/foundation.dart';
+import '../core/storage/safe_fs.dart';
 
 final isScanningProvider = StateProvider<bool>((ref) => false);
 
@@ -72,6 +73,7 @@ class DownloadedGamesCache extends StateNotifier<Map<String, bool>> {
     final mappingService = mappingServiceAsync.value!;
     final metadataCache = metadataCacheAsync.value!;
     final mappings = mappingService.getMappings();
+    final romsRoot = _ref.read(directoryServiceProvider).asData?.value.romsRootPath;
     final Map<String, bool> newState = {};
     
     final Set<String> missingMetadataIds = {};
@@ -81,8 +83,11 @@ class DownloadedGamesCache extends StateNotifier<Map<String, bool>> {
       final path = entry.key;
       final romId = entry.value;
       
-      // DISK CHECK: If the file was deleted manually, clean up the mapping
-      if (await io.File(path).exists() || await io.Directory(path).exists()) {
+      // DISK CHECK: If the file was deleted manually, clean up the mapping.
+      // A path on an unreadable drive is only dropped if outside the current ROMs root.
+      final exists = await probePath(path);
+      final keep = exists ?? (romsRoot != null && p.isWithin(romsRoot, path));
+      if (keep) {
         newState[romId] = true;
         if (!cachedIds.contains(romId)) {
           missingMetadataIds.add(romId);
