@@ -8,6 +8,9 @@ import '../storage/app_preferences.dart';
 import '../romm/romm_models.dart';
 import '../romm/romm_service.dart';
 import '../storage/directory_service.dart';
+import 'formats/rzip.dart';
+import 'formats/save_format_registry.dart';
+import 'formats/zstd.dart';
 import 'save_strategy.dart';
 import 'strategies/retroarch_save_strategy.dart';
 import 'strategies/dolphin_save_strategy.dart';
@@ -54,6 +57,9 @@ class SaveSyncService {
   final StrategyRegistry _strategyRegistry;
   final AppPreferences _prefs;
 
+  /// Decompresses zstd RZIP chunks; the zstandard plugin when null.
+  final ZstdDecompressor? _zstd;
+
   /// Minimum save file size in bytes to consider valid for upload.
   /// Files smaller than this are likely empty/blank saves created by an
   /// emulator that didn't actually save, and should not overwrite a
@@ -76,7 +82,9 @@ class SaveSyncService {
   late final AzaharSaveStrategy _azahar;
   late final AresSaveStrategy _ares;
 
-  SaveSyncService(this._rommService, this._directoryService, this._strategyRegistry, this._prefs) {
+  SaveSyncService(this._rommService, this._directoryService, this._strategyRegistry, this._prefs,
+      {ZstdDecompressor? zstd})
+      : _zstd = zstd {
     _retroarch = RetroArchSaveStrategy(_directoryService, prefs: _prefs);
     _dolphin = DolphinSaveStrategy(_directoryService);
     _eden = EdenSaveStrategy(_directoryService, onMappingResolved: saveMappedFolder);
@@ -434,13 +442,83 @@ class SaveSyncService {
 
   /// The emulator a save is tagged with on RomM: RetroArch's core (e.g.
   /// `pcsx_rearmed`, as RomM's in-browser player and Argosy name it), else
-  /// the emulator's id. RomM's player only offers saves tagged with its core.
+  /// the emulator's id. RomM's player lists saves of every emulator but loads
+  /// save states only into their own core; the tag says which emulator made
+  /// a save, and on a pull which format it is in (see save/formats).
   String _saveEmulatorTag(SaveStrategy strategy, Game game, String? emulatorId) {
     if (strategy is RetroArchSaveStrategy) {
       final core = strategy.coreIdFor(game);
       if (core != null) return core;
     }
     return emulatorId ?? strategy.strategyId;
+  }
+
+  /// [bytes] uncompressed when RetroArch wrote them as RZIP ("SaveRAM
+  /// compression"), which RetroArch reads either way and nothing else reads
+  /// compressed; else, or when malformed, as they came.
+  Future<Uint8List> _unrzipDownload(Uint8List bytes, String filename) async {
+    if (!Rzip.isRzip(bytes)) return bytes;
+    try {
+      final raw = await Rzip.unpack(bytes, zstd: _zstd);
+      debugPrint('[SaveSync] [pull] $filename is RZIP-compressed — unpacked ${bytes.length} → ${raw.length} bytes');
+      return raw;
+    } on FormatException catch (e) {
+      debugPrint('[SaveSync] [pull] $filename looks RZIP-compressed but can\'t be unpacked ($e) — restoring it as it is');
+      return bytes;
+    }
+  }
+
+  /// [filesMap] with every RZIP-compressed file replaced by an uncompressed
+  /// copy of the same name and time, so RomM gets the raw save that every
+  /// emulator and client reads, and hashes compare contents. The copies go
+  /// in a per-game temporary folder, like DuckStation's uploads.
+  Future<Map<io.File, io.File?>> _unrzipFiles(Game game, Map<io.File, io.File?> filesMap) async {
+    final result = <io.File, io.File?>{};
+    for (final entry in filesMap.entries) {
+      final file = entry.key;
+      if (!await io.FileSystemEntity.isFile(file.path)) {
+        result[file] = entry.value;
+        continue;
+      }
+      final bytes = await file.readAsBytes();
+      if (!Rzip.isRzip(bytes)) {
+        result[file] = entry.value;
+        continue;
+      }
+      try {
+        final raw = await Rzip.unpack(bytes, zstd: _zstd);
+        final dir = io.Directory(p.join(io.Directory.systemTemp.path, 'freegosy_unrzip',
+            game.id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')));
+        await dir.create(recursive: true);
+        final copy = io.File(p.join(dir.path, p.basename(file.path)));
+        await copy.writeAsBytes(raw);
+        await copy.setLastModified(await file.lastModified());
+        debugPrint('[SaveSync] ${p.basename(file.path)} is RZIP-compressed — using it unpacked (${raw.length} bytes)');
+        result[copy] = entry.value;
+      } on FormatException catch (e) {
+        debugPrint('[SaveSync] ${p.basename(file.path)} looks RZIP-compressed but can\'t be unpacked ($e) — using it as it is');
+        result[file] = entry.value;
+      }
+    }
+    return result;
+  }
+
+  /// Restores a downloaded save, converted first to the format the local
+  /// emulator reads (save/formats) when it came from another emulator.
+  /// [sourceTag] is the save's `emulator` on RomM.
+  Future<bool> _restoreDownloaded(SaveStrategy strategy, Game game, String romPath, Uint8List bytes,
+      String filename, {String? sourceTag, String? emulatorId}) async {
+    final converted = convertSave(
+      platformSlug: game.platformSlug ?? '',
+      files: [SaveBlob(filename, bytes)],
+      sourceTag: sourceTag,
+      targetTag: _saveEmulatorTag(strategy, game, emulatorId),
+      stem: strategy.getRomStem(game),
+    );
+    for (final blob in converted ?? [SaveBlob(filename, bytes)]) {
+      if (!await strategy.restoreSave(game, romPath, blob.bytes, blob.name)) return false;
+    }
+    return true;
   }
 
   void _applyStrategyMappings(SaveStrategy strategy, Game game, {String? coreOverride}) {
@@ -541,6 +619,7 @@ class SaveSyncService {
         debugPrint('[SaveSync] [push] All files filtered out — nothing to upload');
         return false;
       }
+      filesMap = await _unrzipFiles(game, filesMap);
 
       final displayStem =
           game.displayName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
@@ -754,11 +833,12 @@ class SaveSyncService {
         return false;
       }
 
-      final bytes = await _rommService.downloadSave(downloadUrl, deviceId: deviceId);
-      if (bytes == null) {
+      final downloaded = await _rommService.downloadSave(downloadUrl, deviceId: deviceId);
+      if (downloaded == null) {
         debugPrint('[SaveSync] [pull] Download failed');
         return false;
       }
+      final bytes = await _unrzipDownload(downloaded, filename);
 
       final adjustedFilename = _adjustFilenameForFormat(bytes, normalizeSaveFilename(filename));
       debugPrint('[SaveSync] [pull] Downloaded ${bytes.length} bytes → restoring as "$adjustedFilename"');
@@ -772,7 +852,8 @@ class SaveSyncService {
       if (adjustedFilename.toLowerCase().endsWith('.zip')) {
         final cloudContentHash = _readBundleContentHash(bytes);
         if (cloudContentHash != null) {
-          final localFilesMap = await strategy.getSaveFilesWithScreenshots(game, romPath, syncMode: 'both');
+          final localFilesMap =
+              await _unrzipFiles(game, await strategy.getSaveFilesWithScreenshots(game, romPath, syncMode: 'both'));
           if (localFilesMap.isNotEmpty) {
             final localContentHash = await _hashSaveContent(localFilesMap);
             if (localContentHash == cloudContentHash) {
@@ -787,7 +868,8 @@ class SaveSyncService {
         debugPrint('[SaveSync] [pull] The launch went ahead without this pull — not restoring "$adjustedFilename"');
         return false;
       }
-      final ok = await strategy.restoreSave(game, romPath, bytes, adjustedFilename);
+      final ok = await _restoreDownloaded(strategy, game, romPath, bytes, adjustedFilename,
+          sourceTag: save['emulator']?.toString(), emulatorId: emulatorId);
       if (!ok) {
         debugPrint('[SaveSync] [pull] Strategy failed to restore save');
         throw Exception(
@@ -864,6 +946,7 @@ class SaveSyncService {
         filesMap = filteredMap;
       }
       if (filesMap.isEmpty) return false;
+      filesMap = await _unrzipFiles(game, filesMap);
 
       // --- Conflict Detection ---
       if (!force) {
@@ -1106,11 +1189,12 @@ class SaveSyncService {
         return false;
       }
 
-      final bytes = await _rommService.downloadSave(downloadUrl);
-      if (bytes == null) {
+      final downloaded = await _rommService.downloadSave(downloadUrl);
+      if (downloaded == null) {
         debugPrint('[SaveSync] [pull] Download failed');
         return false;
       }
+      final bytes = await _unrzipDownload(downloaded, filename);
 
       // Sniff actual bytes so that ZIP files (even those manually uploaded or
       // stored under a non-.zip name) are correctly extracted on restore.
@@ -1121,7 +1205,8 @@ class SaveSyncService {
         debugPrint('[SaveSync] [pull] The launch went ahead without this pull — not restoring "$adjustedFilename"');
         return false;
       }
-      final ok = await strategy.restoreSave(game, romPath, bytes, adjustedFilename);
+      final ok = await _restoreDownloaded(strategy, game, romPath, bytes, adjustedFilename,
+          sourceTag: save['emulator']?.toString(), emulatorId: emulatorId);
 
       if (ok) {
         await _setLastPullTime(game.id);

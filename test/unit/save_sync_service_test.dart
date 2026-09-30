@@ -15,6 +15,7 @@ import 'package:mockito/mockito.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as p;
 
+import '../helpers/rzip_builder.dart';
 import 'save_sync_service_test.mocks.dart';
 
 @GenerateMocks([RommService, DirectoryService, StrategyRegistry])
@@ -147,6 +148,65 @@ void main() {
       verifyNever(mockRommService.uploadSave(any, any, emulator: anyNamed('emulator')));
 
       await tempDir.delete(recursive: true);
+    });
+
+    group('RetroArch "SaveRAM compression" (RZIP)', () {
+      void stubUploadCapturing(void Function(Uint8List bytes) capture) {
+        when(mockRommService.uploadSave(
+          any, any,
+          emulator: anyNamed('emulator'),
+          slot: anyNamed('slot'),
+          deviceId: anyNamed('deviceId'),
+          autocleanup: anyNamed('autocleanup'),
+          autocleanupLimit: anyNamed('autocleanupLimit'),
+          overwrite: anyNamed('overwrite'),
+          screenshotFile: anyNamed('screenshotFile'),
+          overrideFilename: anyNamed('overrideFilename'),
+        )).thenAnswer((invocation) async {
+          capture(await (invocation.positionalArguments[1] as File).readAsBytes());
+          return (ok: true, conflict: null);
+        });
+        when(mockRommService.pruneOldSaves(any, keepCount: anyNamed('keepCount'))).thenAnswer((_) async {});
+      }
+
+      for (final (label, capabilities) in [
+        ('legacy', RommCapabilities.unknown()),
+        ('4.9', RommCapabilities(version: '4.9.0')),
+      ]) {
+        test('a compressed save is uploaded uncompressed ($label)', () async {
+          when(mockRommService.fetchCapabilities()).thenAnswer((_) async => capabilities);
+          final tempDir = await Directory.systemTemp.createTemp('save_sync_rzip');
+          final raw = Uint8List.fromList(List.generate(150, (i) => i));
+          await File(p.join(tempDir.path, 'game.sav')).writeAsBytes(buildRzip(raw));
+          final game = Game(id: 'rzip_$label', name: 'game', platformSlug: 'gba', fileSize: 0);
+          Uint8List? uploaded;
+          stubUploadCapturing((bytes) => uploaded = bytes);
+
+          expect(await service.pushSaves(game, p.join(tempDir.path, 'game.gba')), isTrue);
+
+          expect(uploaded, raw);
+          await tempDir.delete(recursive: true);
+        });
+      }
+
+      test('the same save, compressed or not, is not uploaded twice', () async {
+        when(mockRommService.fetchCapabilities()).thenAnswer((_) async => RommCapabilities(version: '4.9.0'));
+        final tempDir = await Directory.systemTemp.createTemp('save_sync_rzip_twice');
+        final raw = Uint8List.fromList(List.generate(150, (i) => i));
+        final save = File(p.join(tempDir.path, 'game.sav'));
+        final romPath = p.join(tempDir.path, 'game.gba');
+        final game = Game(id: 'rzip_twice', name: 'game', platformSlug: 'gba', fileSize: 0);
+        var uploads = 0;
+        stubUploadCapturing((_) => uploads++);
+
+        await save.writeAsBytes(raw);
+        await service.pushSaves(game, romPath);
+        await save.writeAsBytes(buildRzip(raw));
+        await service.pushSaves(game, romPath);
+
+        expect(uploads, 1);
+        await tempDir.delete(recursive: true);
+      });
     });
 
     group('routing (legacy vs device)', () {
@@ -526,6 +586,29 @@ void main() {
       final ok = await service.pullSave(pcsx2Game(), romPath);
 
       expect(ok, isTrue);
+      expect(await File(await localSaveFilePath(tempDir)).readAsString(), 'CLOUD_NEW');
+
+      await tempDir.delete(recursive: true);
+    });
+
+    test('a compressed download is unpacked before it is restored', () async {
+      final tempDir = await setUpPcsx2Fixture('LOCAL_OLD');
+      final romPath = p.join(tempDir.path, 'Ico (SLUS-12345).iso');
+      final archive = Archive();
+      archive.addFile(ArchiveFile.string('freegosy_sync.txt', jsonEncode({'contentHash': 'deadbeef'})));
+      archive.addFile(ArchiveFile.string('SLUS-12345/save.bin', 'CLOUD_NEW'));
+      final zipBytes = Uint8List.fromList(ZipEncoder().encode(archive));
+
+      when(mockRommService.getLatestSave(any, deviceId: anyNamed('deviceId')))
+          .thenAnswer((_) async => {
+                'download_path': 'https://example.test/save.zip',
+                'file_name': 'Ico (SLUS-12345).zip',
+                'device_syncs': <dynamic>[],
+              });
+      when(mockRommService.downloadSave(any, deviceId: anyNamed('deviceId')))
+          .thenAnswer((_) async => buildRzip(zipBytes));
+
+      expect(await service.pullSave(pcsx2Game(), romPath), isTrue);
       expect(await File(await localSaveFilePath(tempDir)).readAsString(), 'CLOUD_NEW');
 
       await tempDir.delete(recursive: true);
