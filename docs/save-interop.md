@@ -14,7 +14,7 @@ recommendations**. Findings are marked **verified** (checked against real
 files or by hand) or **from source** (read in the emulator's code).
 
 Platforms covered so far: [PlayStation (PS1)](#playstation-ps1),
-[PlayStation 2 (PS2)](#playstation-2-ps2).
+[PlayStation 2 (PS2)](#playstation-2-ps2), [Nintendo 64](#nintendo-64).
 
 ## How Freegosy moves a game save
 
@@ -303,3 +303,47 @@ another one.
 - [rommapp/argosy-launcher](https://github.com/rommapp/argosy-launcher):
   `PlatformSaveHandlerRegistry.kt` (`Ps2FolderHandler`),
   `SavePathRegistry.kt`.
+
+## Nintendo 64
+
+### Format
+
+**From source.** RetroArch's N64 cores (Mupen64Plus-Next, ParaLLEl N64,
+Mupen64Plus) keep one `<content>.srm` of 0x48800 bytes
+(`save_memory_data` in `libretro/libretro_memory.h`): EEPROM (0x800),
+four controller paks (4 × 0x8000), SRAM (0x8000), FlashRAM (0x20000).
+SRAM and FlashRAM are stored as host-order 32-bit words
+(`mem[addr ^ S8]`), so byte-reversed per word on a PC; EEPROM and paks are
+in the N64's order. Unused parts are 0xFF, unused paks formatted
+(`format_mempak`). ParaLLEl appends a 64DD disk area for 64DD games.
+
+ares keeps one file per part the game uses, `<rom>.eeprom` (512 or 2048
+bytes), `.ram`, `.flash`, big-endian (`ares/n64/memory/msb/writable.hpp`);
+controller paks are separate files Freegosy doesn't sync.
+
+### Interop matrix
+
+| Made in → played in | Result | Why |
+|---|---|---|
+| RetroArch core ↔ RetroArch core, RomM's player, Argosy's RetroArch | ✅ | The same `.srm`. |
+| RetroArch / RomM's player → ares (Freegosy) | ✅ | Converted: the parts the game uses become ares' files, SRAM and FlashRAM swapped. Controller paks are dropped. |
+| ares → RetroArch (Freegosy) | ✅ | Converted into a `.srm` with formatted empty controller paks. |
+| ares → RomM's player, Argosy | ❌ | They load the `.srm` as uploaded; nothing converts ares' files for them. |
+| Project64, Mupen64Plus FZ (Android) → anywhere | ❌ | Their files aren't decoded yet. |
+
+Code: `lib/core/save/formats/n64_save_formats.dart`.
+
+### Sources
+
+- [libretro/mupen64plus-libretro-nx](https://github.com/libretro/mupen64plus-libretro-nx)
+  (4bc73fb): `libretro/libretro_memory.h`, `libretro/libretro.c`
+  (`format_saved_memory`), `mupen64plus-core/src/device/cart/{sram,flashram,eeprom}.c`,
+  `device/controllers/paks/mempak.c`.
+- [libretro/parallel-n64](https://github.com/libretro/parallel-n64) (0bd516e):
+  `libretro/libretro_memory.h`, `libretro/libretro.c` (`retro_get_memory_size`).
+- [ares-emulator/ares](https://github.com/ares-emulator/ares) (4cb8d92):
+  `ares/n64/cartridge/cartridge.cpp`, `ares/n64/memory/msb/writable.hpp`,
+  `mia/medium/nintendo-64.cpp`.
+- [libretro/RetroArch](https://github.com/libretro/RetroArch) (b6f4143):
+  `save.c` (`content_load_ram_file`: a shorter `.srm` is copied over the
+  core's formatted memory).

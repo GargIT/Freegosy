@@ -2,7 +2,10 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:freegosy/core/save/formats/n64_save_formats.dart';
-import 'package:freegosy/core/save/formats/save_format.dart';
+import 'package:freegosy/core/save/formats/rzip.dart';
+import 'package:freegosy/core/save/formats/save_format_registry.dart';
+
+import '../helpers/rzip_builder.dart';
 
 /// N64 saves, from mupen64plus-libretro-nx (libretro/libretro_memory.h,
 /// mupen64plus-core device/cart/*.c, device/controllers/paks/mempak.c) and
@@ -180,5 +183,46 @@ void main() {
     final back = ares.encode(mupen.decode(srm), stem: 'g');
     expect(back.map((f) => f.name), ['g.eeprom']);
     expect(back.single.bytes, pattern(512, 9));
+  });
+
+  group('convertSave for N64', () {
+    List<SaveBlob>? convert(List<SaveBlob> files, {String? from, required String to}) =>
+        convertSave(platformSlug: 'n64', files: files, sourceTag: from, targetTag: to, stem: 'Mario Kart 64 (USA)');
+
+    test('an ares EEPROM save becomes the RetroArch core\'s .srm', () {
+      final out = convert([SaveBlob('mario kart 64 (usa).eeprom', pattern(512, 1))], from: 'ares', to: 'mupen64plus_next')!;
+      expect(out.single.name, 'Mario Kart 64 (USA).srm');
+      expect(out.single.bytes.sublist(0, 512), pattern(512, 1));
+    });
+
+    test('a RetroArch .srm becomes ares\' files', () {
+      final srm = blankSrm()..setRange(N64Layout.sramOffset, N64Layout.flashOffset, swapWords(pattern(0x8000, 2)));
+      final out = convert([SaveBlob('Mario Kart 64 (USA).srm', srm)], from: 'mupen64plus_next', to: 'ares')!;
+      expect(out.map((f) => f.name), ['Mario Kart 64 (USA).ram']);
+      expect(out.single.bytes, pattern(0x8000, 2));
+    });
+
+    test('between the RetroArch cores nothing converts', () {
+      expect(convert([SaveBlob('g.srm', blankSrm())], from: 'mupen64plus_next', to: 'parallel_n64'), isNull);
+    });
+
+    test('an old upload tagged "freegosy" is recognised by its files', () {
+      expect(convert([SaveBlob('g.eeprom', pattern(512))], from: 'freegosy', to: 'mupen64plus_next'), isNotNull);
+    });
+
+    test('a .srm with no cartridge data leaves ares nothing to write: restored as it came', () {
+      expect(convert([SaveBlob('g.srm', blankSrm())], from: 'mupen64plus_next', to: 'ares'), isNull);
+    });
+
+    test('an ares SRAM too big for the cores: restored as it came, never cut short', () {
+      expect(convert([SaveBlob('g.ram', Uint8List(0x20000))], from: 'ares', to: 'mupen64plus_next'), isNull);
+    });
+
+    test('an RZIP-compressed .srm, once unpacked, converts too', () async {
+      // SaveSyncService unpacks before converting (Task 5); this pins the order.
+      final srm = blankSrm()..setRange(0, 4, [1, 2, 3, 4]);
+      final unpacked = await Rzip.unpack(buildRzip(srm));
+      expect(convert([SaveBlob('g.srm', unpacked)], to: 'ares')!.single.name, 'Mario Kart 64 (USA).eeprom');
+    });
   });
 }
