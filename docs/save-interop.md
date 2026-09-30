@@ -327,7 +327,7 @@ controller paks are separate files Freegosy doesn't sync.
 |---|---|---|
 | RetroArch core ↔ RetroArch core, RomM's player, Argosy's RetroArch | ✅ | The same `.srm`. |
 | RetroArch / RomM's player → ares (Freegosy) | ✅ | Converted: the parts the game uses become ares' files, SRAM and FlashRAM swapped. Controller paks are dropped. |
-| ares → RetroArch (Freegosy) | ✅ | Converted into a `.srm` with formatted empty controller paks. |
+| ares → RetroArch (Freegosy) | ✅ | Converted into a `.srm`, keeping the controller paks of the `.srm` already on this PC (formatted empty ones when there is none). |
 | ares → RomM's player, Argosy | ❌ | They load the `.srm` as uploaded; nothing converts ares' files for them. |
 | Project64, Mupen64Plus FZ (Android) → anywhere | ❌ | Their files aren't decoded yet. |
 

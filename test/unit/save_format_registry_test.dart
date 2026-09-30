@@ -24,7 +24,7 @@ class _TextFormat extends SaveFormat<String> {
   }
 
   @override
-  List<SaveBlob> encode(String save, {required String stem}) =>
+  List<SaveBlob> encode(String save, {required String stem, List<SaveBlob> existing = const []}) =>
       encodesNothing ? [] : [SaveBlob('$stem$ext', Uint8List.fromList(utf8.encode(save)))];
 }
 

@@ -41,7 +41,7 @@ class Ps1McdFormat extends SaveFormat<Uint8List> {
   }
 
   @override
-  List<SaveBlob> encode(Uint8List save, {required String stem}) => [SaveBlob('${stem}_1.mcd', save)];
+  List<SaveBlob> encode(Uint8List save, {required String stem, List<SaveBlob> existing = const []}) => [SaveBlob('${stem}_1.mcd', save)];
 }
 
 /// A PS1 memory card as RetroArch's PS1 cores keep card 1 by default: the
@@ -65,7 +65,7 @@ class Ps1SrmFormat extends SaveFormat<Uint8List> {
   }
 
   @override
-  List<SaveBlob> encode(Uint8List save, {required String stem}) => [SaveBlob('$stem.srm', save)];
+  List<SaveBlob> encode(Uint8List save, {required String stem, List<SaveBlob> existing = const []}) => [SaveBlob('$stem.srm', save)];
 }
 
 const ps1SaveSystem = SaveSystem<Uint8List>(

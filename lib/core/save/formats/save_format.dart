@@ -34,8 +34,10 @@ abstract class SaveFormat<N> {
   N decode(List<SaveBlob> files);
 
   /// [save] as this format's files, named for [stem], the ROM name the local
-  /// emulator looks for.
-  List<SaveBlob> encode(N save, {required String stem});
+  /// emulator looks for. [existing] are the game's save files already on this
+  /// machine, for a format that holds more than [save] carries to keep the
+  /// rest of it.
+  List<SaveBlob> encode(N save, {required String stem, List<SaveBlob> existing = const []});
 }
 
 /// The save formats of one system, which share the neutral form [N].
@@ -55,6 +57,7 @@ class SaveSystem<N> {
     String? sourceTag,
     required String targetTag,
     required String stem,
+    List<SaveBlob> existing = const [],
   }) {
     final names = files.map((f) => f.name).join(', ');
     SaveFormat<N>? target;
@@ -91,7 +94,7 @@ class SaveSystem<N> {
     if (identical(source, target)) return null;
 
     try {
-      final out = target.encode(source.decode(files), stem: stem);
+      final out = target.encode(source.decode(files), stem: stem, existing: existing);
       if (out.isEmpty) {
         _log('$names (${source.id}) holds nothing ${target.id} keeps — left as it is');
         return null;

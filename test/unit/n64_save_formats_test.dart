@@ -98,6 +98,17 @@ void main() {
       expect(save.flash, isNull);
     });
 
+    test('parts an older core zero-filled (all 0x00) are absent too', () {
+      final srm = blankSrm()
+        ..fillRange(0, N64Layout.eepromSize, 0)
+        ..fillRange(N64Layout.sramOffset, N64Layout.flashOffset, 0)
+        ..setRange(N64Layout.flashOffset, N64Layout.flashOffset + 4, [1, 2, 3, 4]);
+      final save = mupen.decode([SaveBlob('Game.srm', srm)]);
+      expect(save.eeprom, isNull);
+      expect(save.sram, isNull);
+      expect(save.flash, isNotNull);
+    });
+
     test('a ParaLLEl .srm with a 64DD disk area decodes, the disk area ignored', () {
       final srm = Uint8List(N64Layout.srmSize + 4096)..fillRange(0, N64Layout.srmSize, 0xFF);
       srm.setRange(0, 4, [9, 8, 7, 6]);
@@ -218,6 +229,32 @@ void main() {
       expect(convert([SaveBlob('g.ram', Uint8List(0x20000))], from: 'ares', to: 'mupen64plus_next'), isNull);
     });
 
+
+    test('ares → .srm keeps the controller paks of the .srm already on this machine', () {
+      final local = blankSrm()..setRange(N64Layout.paksOffset, N64Layout.sramOffset, pattern(0x20000, 3));
+      final out = convertSave(
+        platformSlug: 'n64',
+        files: [SaveBlob('mario kart 64 (usa).eeprom', pattern(512, 1))],
+        sourceTag: 'ares',
+        targetTag: 'mupen64plus_next',
+        stem: 'Mario Kart 64 (USA)',
+        existing: [SaveBlob('Mario Kart 64 (USA).srm', local)],
+      )!;
+      expect(out.single.bytes.sublist(0, 512), pattern(512, 1));
+      expect(out.single.bytes.sublist(N64Layout.paksOffset, N64Layout.sramOffset), pattern(0x20000, 3));
+    });
+
+    test('with no local .srm, or another game\'s, the paks are formatted empty', () {
+      final other = blankSrm()..setRange(N64Layout.paksOffset, N64Layout.sramOffset, pattern(0x20000, 3));
+      final out = convertSave(
+        platformSlug: 'n64',
+        files: [SaveBlob('g.eeprom', pattern(512, 1))],
+        targetTag: 'mupen64plus_next',
+        stem: 'Mario Kart 64 (USA)',
+        existing: [SaveBlob('Wave Race 64 (USA).srm', other)],
+      )!;
+      expect(out.single.bytes.sublist(N64Layout.paksOffset, N64Layout.paksOffset + 0x8000), formattedMempak());
+    });
     test('an RZIP-compressed .srm, once unpacked, converts too', () async {
       // SaveSyncService unpacks before converting (Task 5); this pins the order.
       final srm = blankSrm()..setRange(0, 4, [1, 2, 3, 4]);

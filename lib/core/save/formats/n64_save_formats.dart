@@ -90,7 +90,9 @@ Uint8List formattedMempak() {
   return pak;
 }
 
-bool _blank(Uint8List bytes) => bytes.every((b) => b == 0xFF);
+/// Whether [bytes] hold nothing: erased (0xFF, as the cores format a part)
+/// or zeroed (as older Mupen64Plus cores did).
+bool _blank(Uint8List bytes) => bytes.every((b) => b == 0xFF) || bytes.every((b) => b == 0);
 
 /// [bytes] at [size], the rest 0xFF (erased); a FormatException when longer.
 Uint8List _padded(Uint8List bytes, int size, String what) {
@@ -139,12 +141,12 @@ class N64MupenSrmFormat extends SaveFormat<N64SaveData> {
   }
 
   @override
-  List<SaveBlob> encode(N64SaveData save, {required String stem}) {
+  List<SaveBlob> encode(N64SaveData save, {required String stem, List<SaveBlob> existing = const []}) {
     final srm = Uint8List(N64Layout.srmSize)..fillRange(0, N64Layout.srmSize, 0xFF);
     if (save.eeprom != null) {
       srm.setRange(0, N64Layout.eepromSize, _padded(save.eeprom!, N64Layout.eepromSize, 'EEPROM'));
     }
-    final paks = save.paks ?? [for (var i = 0; i < 4; i++) formattedMempak()];
+    final paks = save.paks ?? _localPaks(existing, stem) ?? [for (var i = 0; i < 4; i++) formattedMempak()];
     for (var i = 0; i < 4; i++) {
       if (paks[i].length != N64Layout.pakSize) throw FormatException('controller pak $i is ${paks[i].length} bytes');
       srm.setRange(N64Layout.paksOffset + i * N64Layout.pakSize, N64Layout.paksOffset + (i + 1) * N64Layout.pakSize, paks[i]);
@@ -158,6 +160,16 @@ class N64MupenSrmFormat extends SaveFormat<N64SaveData> {
           swapWords(_padded(save.flash!, N64Layout.flashSize, 'FlashRAM')));
     }
     return [SaveBlob('$stem.srm', srm)];
+  }
+
+  /// The controller paks of this game's `.srm` among [existing], kept when
+  /// the save comes from an emulator whose saves carry no paks (ares), so a
+  /// pull doesn't wipe them.
+  List<Uint8List>? _localPaks(List<SaveBlob> existing, String stem) {
+    for (final file in existing) {
+      if (file.name.toLowerCase() == '$stem.srm'.toLowerCase() && recognises([file])) return decode([file]).paks;
+    }
+    return null;
   }
 }
 
@@ -201,7 +213,7 @@ class N64AresFormat extends SaveFormat<N64SaveData> {
   }
 
   @override
-  List<SaveBlob> encode(N64SaveData save, {required String stem}) => [
+  List<SaveBlob> encode(N64SaveData save, {required String stem, List<SaveBlob> existing = const []}) => [
         if (save.eeprom != null) SaveBlob('$stem.eeprom', _eepromFile(save.eeprom!)),
         if (save.sram != null) SaveBlob('$stem.ram', _padded(save.sram!, N64Layout.sramSize, 'SRAM')),
         if (save.flash != null) SaveBlob('$stem.flash', _padded(save.flash!, N64Layout.flashSize, 'FlashRAM')),

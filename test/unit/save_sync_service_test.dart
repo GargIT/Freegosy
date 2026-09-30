@@ -717,6 +717,27 @@ void main() {
 
     tearDown(() => tempDir.delete(recursive: true));
 
+    test('a RetroArch .srm becomes ares\' .eeprom', () async {
+      cloudSave('$romName.srm', blankSrm()..setRange(0, 512, pattern(512, 1)), emulator: 'mupen64plus_next');
+
+      expect(await sync.pullSave(n64Game(), romPath(), emulatorId: 'ares'), isTrue);
+
+      expect(filesIn(aresSaves()), ['$romName.eeprom']);
+      expect(File(p.join(aresSaves(), '$romName.eeprom')).readAsBytesSync(), pattern(512, 1));
+    });
+
+    test('an ares save becomes the core\'s .srm, keeping the controller paks of the local one', () async {
+      final local = blankSrm()..setRange(0x800, 0x20800, pattern(0x20000, 3));
+      await File(p.join(retroarchSaves, '$romName.srm')).writeAsBytes(local);
+      cloudSave('$romName.eeprom', pattern(512, 2), emulator: 'ares');
+
+      expect(await sync.pullSave(n64Game(), romPath(), emulatorId: 'retroarch'), isTrue);
+
+      final srm = File(p.join(retroarchSaves, '$romName.srm')).readAsBytesSync();
+      expect(srm.sublist(0, 512), pattern(512, 2));
+      expect(srm.sublist(0x800, 0x20800), pattern(0x20000, 3));
+    });
+
     test('a DuckStation PS1 card becomes the RetroArch core\'s .srm', () async {
       const cardRom = 'Colin McRae Rally 2.0 (Europe) (En,Fr,De,Es,It)';
       final card = buildPs1Card([(name: 'BESLES-02605-SETTING', blocks: [1], fill: 0x11)]);

@@ -512,19 +512,39 @@ class SaveSyncService {
   /// [sourceTag] is the save's `emulator` on RomM.
   Future<bool> _restoreDownloaded(SaveStrategy strategy, Game game, String romPath, Uint8List bytes,
       String filename, {String? sourceTag, String? emulatorId}) async {
+    final platformSlug = game.platformSlug ?? '';
     // Still RZIP (it couldn't be unpacked): its bytes are no format's, even
     // when big enough to pass for one.
     final converted = Rzip.isRzip(bytes) ? null : convertSave(
-      platformSlug: game.platformSlug ?? '',
+      platformSlug: platformSlug,
       files: [SaveBlob(filename, bytes)],
       sourceTag: sourceTag,
       targetTag: _saveEmulatorTag(strategy, game, emulatorId),
       stem: strategy.getRomStem(game),
+      existing: saveSystemFor(platformSlug) == null ? const [] : await _localSaveBlobs(strategy, game, romPath),
     );
     for (final blob in converted ?? [SaveBlob(filename, bytes)]) {
       if (!await strategy.restoreSave(game, romPath, blob.bytes, blob.name)) return false;
     }
     return true;
+  }
+
+  /// The game's save files on this machine, for a conversion that keeps what
+  /// the pulled save doesn't carry (an N64 .srm's controller paks). Folders
+  /// and files over 1 MB are left out; unreadable saves leave the list empty.
+  Future<List<SaveBlob>> _localSaveBlobs(SaveStrategy strategy, Game game, String romPath) async {
+    final blobs = <SaveBlob>[];
+    try {
+      for (final file in await strategy.getSaveFiles(game, romPath, syncMode: 'saves')) {
+        if (!await io.FileSystemEntity.isFile(file.path) || await file.length() > 1024 * 1024) continue;
+        final name = p.basename(file.path);
+        blobs.add(SaveBlob(name, await _unrzipDownload(await file.readAsBytes(), name)));
+      }
+    } catch (e) {
+      debugPrint('[SaveSync] [pull] local saves unreadable ($e) — converting without them');
+      return [];
+    }
+    return blobs;
   }
 
   void _applyStrategyMappings(SaveStrategy strategy, Game game, {String? coreOverride}) {
