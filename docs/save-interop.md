@@ -28,8 +28,13 @@ For reference when reading the matrices:
   emulator (e.g. `pcsx2`, `duckstation`), in the `freegosy` slot.
 - **Download**: Freegosy takes RomM's **newest save for the game, whoever
   uploaded it** (`RommService.getLatestSave`; neither the tag nor the slot is
-  checked), and hands it to the strategy of the emulator on this
-  machine (`restoreSave`), which decides where, and under what name, it goes.
+  checked). A save RetroArch compressed (RZIP, "SaveRAM compression") is
+  unpacked, and so is one about to be uploaded. The save is then converted
+  to the format the emulator on this machine reads, when it's in another
+  emulator's format (`lib/core/save/formats/`, `convertSave`: source by the
+  save's RomM tag, else by its files; target by this machine's tag), and
+  handed to that emulator's strategy (`restoreSave`), which decides where it
+  goes.
 - So for a save to cross emulators, the **receiving** strategy must recognise
   the uploaded file (name and format) and write it where its emulator reads it.
 
@@ -120,8 +125,8 @@ The other rows follow from the formats and the clients' code.
 2. **Done: RetroArch restores a PS1 `.mcd` as `<content>.srm`**, when it is a
    128 KB `MC` card for port 1 (`_1.mcd`, `mcd1` / `card1`, `shared_card_1`,
    or no port in the name), alone or in a zip
-   (`RetroArchSaveStrategy.isPs1Port1Card`). This covers `.mcd` saves already
-   on RomM and other clients' serial/title cards.
+   (`lib/core/save/formats/ps1_card_formats.dart`). This covers `.mcd` saves
+   already on RomM and other clients' serial/title cards.
 3. **Done (RetroArch, every platform): a stricter save match** (#116). A save
    belongs to the game when it is the ROM name followed by an extension, or
    else has the same title (every word, numbers included; case, punctuation,
