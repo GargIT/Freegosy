@@ -738,6 +738,28 @@ void main() {
       expect(srm.sublist(0x800, 0x20800), pattern(0x20000, 3));
     });
 
+    test('a zip on RomM holding only a RetroArch .srm (an older upload) becomes ares\' .eeprom', () async {
+      final zip = Archive()
+        ..addFile(ArchiveFile.string('freegosy_sync.txt', '{"timeStamp":"2026-09-30T12:45:00"}'))
+        ..addFile(ArchiveFile('$romName.srm', 0x48800, blankSrm()..setRange(0, 512, pattern(512, 4))));
+      cloudSave('Mario Kart 64.zip', Uint8List.fromList(ZipEncoder().encode(zip)), emulator: 'freegosy');
+
+      expect(await sync.pullSave(n64Game(), romPath(), emulatorId: 'ares'), isTrue);
+
+      expect(filesIn(aresSaves()), ['$romName.eeprom']);
+      expect(File(p.join(aresSaves(), '$romName.eeprom')).readAsBytesSync(), pattern(512, 4));
+    });
+
+    test('a zip on RomM holding only an ares .eeprom is restored as that .eeprom, not as a zip', () async {
+      final zip = Archive()..addFile(ArchiveFile('$romName.eeprom', 512, pattern(512, 5)));
+      cloudSave('$romName.zip', Uint8List.fromList(ZipEncoder().encode(zip)), emulator: 'freegosy');
+
+      expect(await sync.pullSave(n64Game(), romPath(), emulatorId: 'ares'), isTrue);
+
+      expect(filesIn(aresSaves()), ['$romName.eeprom']);
+      expect(File(p.join(aresSaves(), '$romName.eeprom')).readAsBytesSync(), pattern(512, 5));
+    });
+
     test('a DuckStation PS1 card becomes the RetroArch core\'s .srm', () async {
       const cardRom = 'Colin McRae Rally 2.0 (Europe) (En,Fr,De,Es,It)';
       final card = buildPs1Card([(name: 'BESLES-02605-SETTING', blocks: [1], fill: 0x11)]);

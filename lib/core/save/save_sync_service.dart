@@ -513,20 +513,46 @@ class SaveSyncService {
   Future<bool> _restoreDownloaded(SaveStrategy strategy, Game game, String romPath, Uint8List bytes,
       String filename, {String? sourceTag, String? emulatorId}) async {
     final platformSlug = game.platformSlug ?? '';
+    final convertible = saveSystemFor(platformSlug) != null;
+    // A zip holding one save file (as older uploads were) is restored as that
+    // file, converted when it's in another emulator's format.
+    final source = convertible && filename.toLowerCase().endsWith('.zip') ? _singleSaveInZip(bytes) : null;
     // Still RZIP (it couldn't be unpacked): its bytes are no format's, even
     // when big enough to pass for one.
-    final converted = Rzip.isRzip(bytes) ? null : convertSave(
-      platformSlug: platformSlug,
-      files: [SaveBlob(filename, bytes)],
-      sourceTag: sourceTag,
-      targetTag: _saveEmulatorTag(strategy, game, emulatorId),
-      stem: strategy.getRomStem(game),
-      existing: saveSystemFor(platformSlug) == null ? const [] : await _localSaveBlobs(strategy, game, romPath),
-    );
-    for (final blob in converted ?? [SaveBlob(filename, bytes)]) {
+    final converted = !convertible || Rzip.isRzip(bytes)
+        ? null
+        : convertSave(
+            platformSlug: platformSlug,
+            files: [source ?? SaveBlob(filename, bytes)],
+            sourceTag: sourceTag,
+            targetTag: _saveEmulatorTag(strategy, game, emulatorId),
+            stem: strategy.getRomStem(game),
+            existing: await _localSaveBlobs(strategy, game, romPath),
+          );
+    for (final blob in converted ?? [source ?? SaveBlob(filename, bytes)]) {
       if (!await strategy.restoreSave(game, romPath, blob.bytes, blob.name)) return false;
     }
     return true;
+  }
+
+  /// The one save file in [zipBytes], leaving out Freegosy's sync metadata,
+  /// screenshots and save states; null when there are none, several, or the
+  /// zip can't be read.
+  static SaveBlob? _singleSaveInZip(Uint8List zipBytes) {
+    try {
+      final saves = [
+        for (final entry in ZipDecoder().decodeBytes(zipBytes))
+          if (entry.isFile &&
+              p.basename(entry.name) != 'freegosy_sync.txt' &&
+              !const {'.png', '.jpg', '.jpeg'}.contains(p.extension(entry.name).toLowerCase()) &&
+              !p.basename(entry.name).toLowerCase().contains('.state'))
+            entry,
+      ];
+      if (saves.length != 1) return null;
+      return SaveBlob(p.basename(saves.single.name), Uint8List.fromList(saves.single.content as List<int>));
+    } catch (_) {
+      return null;
+    }
   }
 
   /// The game's save files on this machine, for a conversion that keeps what

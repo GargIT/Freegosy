@@ -331,6 +331,9 @@ controller paks are separate files Freegosy doesn't sync.
 | ares → RomM's player, Argosy | ❌ | They load the `.srm` as uploaded; nothing converts ares' files for them. |
 | Project64, Mupen64Plus FZ (Android) → anywhere | ❌ | Their files aren't decoded yet. |
 
+A zip on RomM holding one save file (as Freegosy used to upload a single
+save) converts as that file.
+
 Code: `lib/core/save/formats/n64_save_formats.dart`.
 
 ### Sources
