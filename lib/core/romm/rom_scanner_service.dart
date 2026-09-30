@@ -7,6 +7,7 @@ import 'romm_models.dart';
 import 'package:crypto/crypto.dart';
 import '../storage/directory_service.dart';
 import '../storage/file_system_index.dart';
+import '../storage/safe_fs.dart';
 
 class RomSyncResult {
   final String path;
@@ -24,7 +25,19 @@ class RomScannerService {
   final RomMappingService _mappingService;
   final DirectoryService _directoryService;
 
-  RomScannerService(this._rommService, this._mappingService, this._directoryService);
+  final PathProbe _probe;
+
+  RomScannerService(this._rommService, this._mappingService, this._directoryService, {PathProbe probe = probePath})
+      : _probe = probe;
+
+  /// A mapping is stale when its path is gone, or when it cannot be read at all
+  /// (e.g. an unplugged/empty drive) and lies outside the current ROMs root.
+  Future<bool> _isStale(String path, String romsRoot) async {
+    final exists = await _probe(path);
+    if (exists == true) return false;
+    if (exists == false) return true;
+    return !p.isWithin(romsRoot, path);
+  }
 
   /// Performs an incremental sync of the ROM directory.
   /// Performs a high-performance file-centric sync of the ROM directory.
@@ -75,7 +88,7 @@ class RomScannerService {
       // --- PASS 1: VERIFY EXISTING MAPPINGS ---
       final platformMappings = mappings.entries.where((e) => p.isWithin(dir.path, e.key)).toList();
       for (final entry in platformMappings) {
-        if (await File(entry.key).exists() || await Directory(entry.key).exists()) {
+        if (!await _isStale(entry.key, romsRoot)) {
           matchedPathsInThisPlatform.add(entry.key);
         } else {
           debugPrint('[Scanner] Removing stale mapping: ${entry.key}');
@@ -180,7 +193,7 @@ class RomScannerService {
     
     if (existingPath != null) {
       // Verify if the file still exists
-      if (await File(existingPath).exists() || await Directory(existingPath).exists()) {
+      if (!await _isStale(existingPath, _directoryService.romsRootPath)) {
         debugPrint('[RomScanner] Single Sync: ${game.name} already correctly mapped.');
         return;
       } else {
@@ -203,9 +216,10 @@ class RomScannerService {
   /// Prunes all mappings that point to non-existent files.
   Future<int> pruneDeadMappings() async {
     final mappings = _mappingService.getMappings();
+    final romsRoot = _directoryService.romsRootPath;
     int count = 0;
     for (final entry in mappings.entries) {
-      if (!await File(entry.key).exists() && !await Directory(entry.key).exists()) {
+      if (await _isStale(entry.key, romsRoot)) {
         await _mappingService.removeMapping(entry.key);
         count++;
       }
