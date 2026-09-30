@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:archive/archive_io.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:freegosy/core/platform/platform_info.dart';
 import 'package:freegosy/core/romm/romm_models.dart';
 import 'package:freegosy/core/romm/romm_service.dart';
 import 'package:freegosy/core/emulator/strategy_registry.dart';
@@ -15,6 +16,7 @@ import 'package:mockito/mockito.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as p;
 
+import '../helpers/ps1_card_builder.dart';
 import '../helpers/rzip_builder.dart';
 import 'save_sync_service_test.mocks.dart';
 
@@ -659,6 +661,85 @@ void main() {
       });
       expect(seen, (true, false, true));
       expect(SaveRestoreGuard.current, isNull);
+    });
+  });
+
+  /// A pull goes through save/formats: the strategy is handed the save in
+  /// its emulator's format and name, else the save as it came.
+  group('SaveSyncService converts a pulled save for the local emulator', () {
+    const romName = 'Mario Kart 64 (USA)';
+    late Directory tempDir;
+    late SaveSyncService sync;
+    late String retroarchSaves;
+
+    Uint8List blankSrm() => Uint8List(0x48800)..fillRange(0, 0x48800, 0xFF);
+    Uint8List pattern(int size, [int seed = 0]) =>
+        Uint8List.fromList(List.generate(size, (i) => (i + seed) % 251));
+    Game n64Game() =>
+        Game(id: 'n64game', name: 'Mario Kart 64', fsName: '$romName.z64', platformSlug: 'n64', fileSize: 0);
+    String romPath() => p.join(tempDir.path, 'roms', '$romName.z64');
+    String aresSaves() => p.join(tempDir.path, '.local', 'share', 'ares', 'Saves', 'Nintendo 64');
+    List<String> filesIn(String dir) => Directory(dir).existsSync()
+        ? (Directory(dir).listSync().whereType<File>().map((f) => p.basename(f.path)).toList()..sort())
+        : <String>[];
+
+    void cloudSave(String fileName, Uint8List bytes, {String? emulator}) {
+      when(mockRommService.getLatestSave(any, deviceId: anyNamed('deviceId'))).thenAnswer((_) async => {
+            'download_path': 'https://example.test/$fileName',
+            'file_name': fileName,
+            'emulator': emulator,
+          });
+      when(mockRommService.downloadSave(any, deviceId: anyNamed('deviceId'))).thenAnswer((_) async => bytes);
+    }
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('save_sync_convert');
+      // RetroArch as on Linux: its config names one saves folder for every core.
+      final configDir = p.join(tempDir.path, '.config', 'retroarch');
+      await Directory(configDir).create(recursive: true);
+      retroarchSaves = p.join(tempDir.path, 'saves');
+      await Directory(retroarchSaves).create(recursive: true);
+      await File(p.join(configDir, 'retroarch.cfg'))
+          .writeAsString('savefile_directory = "$retroarchSaves"\nsort_savefiles_enable = "false"\n');
+      when(mockDirectoryService.getEmulatorAppSupportDirectory('retroarch', platformSlug: anyNamed('platformSlug')))
+          .thenAnswer((_) async => configDir);
+      when(mockDirectoryService.findEmulatorExecutable(any, any)).thenAnswer((_) async => null);
+      when(mockDirectoryService.linuxSyncPreset).thenReturn('default');
+      sync = SaveSyncService(mockRommService, mockDirectoryService, mockStrategyRegistry,
+          SharedPreferencesAppPreferences(await SharedPreferences.getInstance()),
+          platform: PlatformInfo('linux', environment: {'HOME': tempDir.path}),
+          zstd: (_) async => throw UnsupportedError('no zstd library'));
+    });
+
+    tearDown(() => tempDir.delete(recursive: true));
+
+    test('a DuckStation PS1 card becomes the RetroArch core\'s .srm', () async {
+      const cardRom = 'Colin McRae Rally 2.0 (Europe) (En,Fr,De,Es,It)';
+      final card = buildPs1Card([(name: 'BESLES-02605-SETTING', blocks: [1], fill: 0x11)]);
+      final game = Game(id: 'ps1game', name: 'Colin McRae Rally 2.0', fsName: '$cardRom.cue', platformSlug: 'psx', fileSize: 0);
+      cloudSave('${cardRom}_1.mcd', card, emulator: 'duckstation');
+
+      expect(await sync.pullSave(game, p.join(tempDir.path, 'roms', '$cardRom.cue'), emulatorId: 'retroarch'), isTrue);
+
+      expect(filesIn(retroarchSaves), ['$cardRom.srm']);
+      expect(File(p.join(retroarchSaves, '$cardRom.srm')).readAsBytesSync(), card);
+    });
+
+    test('a save no format recognises is restored as it came', () async {
+      cloudSave('$romName.srm', pattern(4096), emulator: 'mupen64plus_next');
+
+      expect(await sync.pullSave(n64Game(), romPath(), emulatorId: 'ares'), isTrue);
+
+      expect(filesIn(aresSaves()), ['${romName.toLowerCase()}.srm']);
+    });
+
+    test('an RZIP save that can\'t be unpacked (no zstd library) is restored as it came', () async {
+      final packed = buildRzip(blankSrm(), version: 2, compress: (c) => c);
+      cloudSave('$romName.srm', packed, emulator: 'mupen64plus_next');
+
+      expect(await sync.pullSave(n64Game(), romPath(), emulatorId: 'ares'), isTrue);
+
+      expect(File(p.join(aresSaves(), '${romName.toLowerCase()}.srm')).readAsBytesSync(), packed);
     });
   });
 }

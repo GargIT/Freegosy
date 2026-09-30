@@ -82,24 +82,26 @@ class SaveSyncService {
   late final AzaharSaveStrategy _azahar;
   late final AresSaveStrategy _ares;
 
+  /// [platform] is the OS the strategies look for emulators on; tests pass
+  /// one with a temporary home.
   SaveSyncService(this._rommService, this._directoryService, this._strategyRegistry, this._prefs,
-      {ZstdDecompressor? zstd})
+      {ZstdDecompressor? zstd, PlatformInfo? platform})
       : _zstd = zstd {
-    _retroarch = RetroArchSaveStrategy(_directoryService, prefs: _prefs);
-    _dolphin = DolphinSaveStrategy(_directoryService);
-    _eden = EdenSaveStrategy(_directoryService, onMappingResolved: saveMappedFolder);
-    _ryujinx = RyujinxSaveStrategy(onMappingResolved: saveMappedFolder);
-    _windows = WindowsSaveStrategy(_prefs);
-    _pcsx2 = Pcsx2SaveStrategy(_directoryService, _prefs);
-    _rpcs3 = Rpcs3SaveStrategy(_directoryService);
-    _xenia = XeniaSaveStrategy(_directoryService);
-    _duckstation = DuckstationSaveStrategy(_directoryService, _prefs);
-    _melonds = MelonDsSaveStrategy(_directoryService);
-    _mgba = MgbaSaveStrategy(_directoryService);
-    _ppsspp = PpssppSaveStrategy(_directoryService);
-    _cemu = CemuSaveStrategy(_directoryService);
-    _azahar = AzaharSaveStrategy(_directoryService, onMappingResolved: saveMappedFolder);
-    _ares = AresSaveStrategy(_directoryService);
+    _retroarch = RetroArchSaveStrategy(_directoryService, prefs: _prefs, platform: platform);
+    _dolphin = DolphinSaveStrategy(_directoryService, platform: platform);
+    _eden = EdenSaveStrategy(_directoryService, onMappingResolved: saveMappedFolder, platform: platform);
+    _ryujinx = RyujinxSaveStrategy(onMappingResolved: saveMappedFolder, platform: platform);
+    _windows = WindowsSaveStrategy(_prefs, platform: platform);
+    _pcsx2 = Pcsx2SaveStrategy(_directoryService, _prefs, platform: platform);
+    _rpcs3 = Rpcs3SaveStrategy(_directoryService, platform: platform);
+    _xenia = XeniaSaveStrategy(_directoryService, platform: platform);
+    _duckstation = DuckstationSaveStrategy(_directoryService, _prefs, platform: platform);
+    _melonds = MelonDsSaveStrategy(_directoryService, platform: platform);
+    _mgba = MgbaSaveStrategy(_directoryService, platform: platform);
+    _ppsspp = PpssppSaveStrategy(_directoryService, platform: platform);
+    _cemu = CemuSaveStrategy(_directoryService, platform: platform);
+    _azahar = AzaharSaveStrategy(_directoryService, onMappingResolved: saveMappedFolder, platform: platform);
+    _ares = AresSaveStrategy(_directoryService, platform: platform);
   }
 
   /// Returns the manual Title ID mapping for a given game.
@@ -462,7 +464,9 @@ class SaveSyncService {
       final raw = await Rzip.unpack(bytes, zstd: _zstd);
       debugPrint('[SaveSync] [pull] $filename is RZIP-compressed — unpacked ${bytes.length} → ${raw.length} bytes');
       return raw;
-    } on FormatException catch (e) {
+    } catch (e) {
+      // Malformed, or the zstandard library failed: RetroArch reads its own
+      // RZIP files anyway.
       debugPrint('[SaveSync] [pull] $filename looks RZIP-compressed but can\'t be unpacked ($e) — restoring it as it is');
       return bytes;
     }
@@ -495,7 +499,7 @@ class SaveSyncService {
         await copy.setLastModified(await file.lastModified());
         debugPrint('[SaveSync] ${p.basename(file.path)} is RZIP-compressed — using it unpacked (${raw.length} bytes)');
         result[copy] = entry.value;
-      } on FormatException catch (e) {
+      } catch (e) {
         debugPrint('[SaveSync] ${p.basename(file.path)} looks RZIP-compressed but can\'t be unpacked ($e) — using it as it is');
         result[file] = entry.value;
       }
@@ -508,7 +512,9 @@ class SaveSyncService {
   /// [sourceTag] is the save's `emulator` on RomM.
   Future<bool> _restoreDownloaded(SaveStrategy strategy, Game game, String romPath, Uint8List bytes,
       String filename, {String? sourceTag, String? emulatorId}) async {
-    final converted = convertSave(
+    // Still RZIP (it couldn't be unpacked): its bytes are no format's, even
+    // when big enough to pass for one.
+    final converted = Rzip.isRzip(bytes) ? null : convertSave(
       platformSlug: game.platformSlug ?? '',
       files: [SaveBlob(filename, bytes)],
       sourceTag: sourceTag,
