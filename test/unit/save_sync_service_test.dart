@@ -678,7 +678,9 @@ void main() {
     Game n64Game() =>
         Game(id: 'n64game', name: 'Mario Kart 64', fsName: '$romName.z64', platformSlug: 'n64', fileSize: 0);
     String romPath() => p.join(tempDir.path, 'roms', '$romName.z64');
-    String aresSaves() => p.join(tempDir.path, '.local', 'share', 'ares', 'Saves', 'Nintendo 64');
+    // ares' settings.bml has no saves path, so Freegosy sets <ares folder>/Saves/.
+    String aresDir() => p.join(tempDir.path, '.local', 'share', 'ares');
+    String aresSaves() => p.join(aresDir(), 'Saves', 'Nintendo 64');
     List<String> filesIn(String dir) => Directory(dir).existsSync()
         ? (Directory(dir).listSync().whereType<File>().map((f) => p.basename(f.path)).toList()..sort())
         : <String>[];
@@ -705,6 +707,8 @@ void main() {
           .thenAnswer((_) async => configDir);
       when(mockDirectoryService.findEmulatorExecutable(any, any)).thenAnswer((_) async => null);
       when(mockDirectoryService.linuxSyncPreset).thenReturn('default');
+      await Directory(aresDir()).create(recursive: true);
+      await File(p.join(aresDir(), 'settings.bml')).writeAsString('Paths\n  Home\n  Saves\n');
       sync = SaveSyncService(mockRommService, mockDirectoryService, mockStrategyRegistry,
           SharedPreferencesAppPreferences(await SharedPreferences.getInstance()),
           platform: PlatformInfo('linux', environment: {'HOME': tempDir.path}),
@@ -730,7 +734,8 @@ void main() {
 
       expect(await sync.pullSave(n64Game(), romPath(), emulatorId: 'ares'), isTrue);
 
-      expect(filesIn(aresSaves()), ['${romName.toLowerCase()}.srm']);
+      expect(filesIn(aresSaves()), ['$romName.srm']);
+      expect(filesIn(p.join(tempDir.path, 'roms')), isEmpty, reason: 'nothing in the ROM folder');
     });
 
     test('an RZIP save that can\'t be unpacked (no zstd library) is restored as it came', () async {
@@ -739,7 +744,7 @@ void main() {
 
       expect(await sync.pullSave(n64Game(), romPath(), emulatorId: 'ares'), isTrue);
 
-      expect(File(p.join(aresSaves(), '${romName.toLowerCase()}.srm')).readAsBytesSync(), packed);
+      expect(File(p.join(aresSaves(), '$romName.srm')).readAsBytesSync(), packed);
     });
   });
 }
