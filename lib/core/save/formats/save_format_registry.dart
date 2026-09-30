@@ -1,10 +1,11 @@
 import '../../emulator/platform_slugs.dart';
+import 'ps1_card_formats.dart';
 import 'save_format.dart';
 
 export 'save_format.dart';
 
 /// Every system whose saves Freegosy converts between emulators.
-final List<SaveSystem<Object>> kSaveSystems = [];
+final List<SaveSystem<Object>> kSaveSystems = [ps1SaveSystem];
 
 /// [files], downloaded from RomM for a game on [platformSlug], in the format
 /// and under the names the emulator tagged [targetTag] reads; null to restore
