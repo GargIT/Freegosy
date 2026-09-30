@@ -65,14 +65,27 @@ class NativeLinuxStrategy extends LinuxEnvironmentStrategy {
     final direct = io.File(p.join(emulatorsRoot, executableName));
     if (await direct.exists()) return direct.path;
 
-    // 2. Check common AppImage locations (EmuDeck, Gear Lever, manual installs)
+    // 2. Check common AppImage locations (emulator folder, Emulators root,
+    //    EmuDeck, Gear Lever, manual installs)
     final home = _platform.environment['HOME'] ?? '';
     final searchDirs = [
+      io.Directory(p.join(emulatorsRoot, emulatorId)),
+      io.Directory(emulatorsRoot),
       io.Directory(p.join(home, 'Applications')),
       io.Directory(p.join(home, 'AppImages')),
       io.Directory(p.join(home, '.local', 'bin')),
       io.Directory(p.join(home, 'bin')),
     ];
+    final targetLower = executableName.toLowerCase();
+    final targetStem = targetLower.replaceAll(RegExp(r'\.appimage$'), '');
+    // Names to match AppImage files against, e.g. "pcsx2-qt" -> {pcsx2-qt, pcsx2}
+    final idLower = emulatorId.toLowerCase();
+    final names = <String>{
+      targetStem,
+      targetStem.split(RegExp(r'[-_.]')).first,
+      idLower,
+    }..removeWhere((n) => n.isEmpty);
+
     for (final dir in searchDirs) {
       if (!await dir.exists()) continue;
 
@@ -80,30 +93,25 @@ class NativeLinuxStrategy extends LinuxEnvironmentStrategy {
       final candidate = io.File(p.join(dir.path, executableName));
       if (await candidate.exists()) return candidate.path;
 
-      // Case-insensitive fallback for AppImage files and other executables
       try {
         final entries = await dir.list().toList();
+        String? fuzzy;
         for (final entry in entries) {
           if (entry is! io.File) continue;
-          final baseName = p.basename(entry.path);
-          final baseNameLower = baseName.toLowerCase();
-          final targetLower = executableName.toLowerCase();
+          final baseNameLower = p.basename(entry.path).toLowerCase();
 
           // Exact match (case-insensitive)
           if (baseNameLower == targetLower) return entry.path;
 
-          // Match AppImage files: e.g. "PCSX2.AppImage" matches "pcsx2"
-          if (baseNameLower.endsWith('.appimage') &&
-              baseNameLower == '$targetLower.appimage') {
-            return entry.path;
+          // Versioned/renamed AppImages, e.g. "Cemu-2.6-x86_64.AppImage",
+          // "DuckStation-x64.AppImage", "rpcs3-v0.0.35_linux64.AppImage".
+          if (fuzzy == null && baseNameLower.endsWith('.appimage')) {
+            final stem = baseNameLower.substring(0, baseNameLower.length - '.appimage'.length);
+            final head = stem.split(RegExp(r'[-_.\s]')).first;
+            if (names.contains(stem) || names.contains(head)) fuzzy = entry.path;
           }
-
-          // Fuzzy match: strip common suffixes and compare
-          final stripped = baseNameLower
-              .replaceAll(RegExp(r'[-_]?(x86_64|amd64|linux|gtk).*'), '')
-              .replaceAll(RegExp(r'\.(appimage|AppImage)$'), '');
-          if (stripped == targetLower) return entry.path;
         }
+        if (fuzzy != null) return fuzzy;
       } catch (_) {
         // Silently ignore permission errors or other listing issues
       }
