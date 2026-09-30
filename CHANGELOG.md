@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-26
+
 ### Added
 - **PS2 saves sync with RetroArch's PS2 core (LRPS2)**: LRPS2 keeps every game's saves on memory cards shared by all games in RetroArch's system folder (`system/pcsx2/memcards/Mcd001.ps2`, `Mcd002.ps2`), where Freegosy never looked, so its saves weren't synced at all. Freegosy now takes only the launched game's saves off the card, found by the game's serial, and uploads them as save folders (e.g. `BASLUS-20851AC5/…`), the same shape PCSX2 folder cards and Argosy use. Pulling puts them back on the card and leaves every other game's saves as they are, after a `.bak` of the card. A card that is full or can't be read is left untouched with a "Saves Not Synced" message, and the pull finishes before RetroArch starts. With LRPS2's *Shared Memory Cards* off, the game's own card in the save folder is used the same way.
 - **Headless mode** (`--headless`): run Freegosy without a UI window — `list`/`search`, `download` (including multi-file/multi-disc), and `launch` (waits for exit, runs the same save-push/backup pipeline as the UI, reports pass/fail as JSON or plain text). Useful for scripting a launch/sync check or driving Freegosy from an agent/CI. See the README for usage.

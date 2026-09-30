@@ -31,7 +31,7 @@ Freegosy is a solo passion project — built and maintained in my spare time, wi
 
 No pressure at all — the app is and will always be free.
 
-## Current Features (v0.5.10)
+## Current Features (v0.6.0)
 
 - **Native Multi-Platform Support**: Full support for **macOS** (ARM64/Intel), **Windows**, and **Linux** (including **Steam Deck/EmuDeck** and **RetroDECK** integration).
 - **Enhanced Offline Mode**: Persistent metadata caching for browsing and launching your collection without a connection.
@@ -64,16 +64,24 @@ No pressure at all — the app is and will always be free.
     - **New**: PCSX2 per-game folder saves (`saves/{Serial}/`) supported alongside legacy memcards.
     - **New**: Dolphin GameCube saves now correctly upload a single `.gci` (no more backup dumps or unrelated games).
     - **New**: All strategies respect a 2-second session-start grace window to prevent missing saves written at launch.
+    - **New in 0.6.0**: Save-state sync and **Resume Game** for PCSX2 and DuckStation (opt-in "Sync save states"), with state thumbnails.
+    - **New in 0.6.0**: PS1/PS2 memory cards interoperate across emulators: DuckStation cards follow its Memory Card Type setting and work with RetroArch's PS1 cores; LRPS2 (RetroArch PS2) and PCSX2 file memory cards sync one game's saves at a time.
+    - **New in 0.6.0**: RetroArch saves now land in the launching core's own folder and never pick up another game's save; saves on RomM are tagged with the emulator that made them.
 - **Refined UI/UX**:
     - **Visual-First Grid**: Interactive game cards with detailed metadata.
     - **Recently Played**: Quick access to your latest games.
     - **Screenshot Gallery**: Interactive, zoomable screenshot viewer.
     - **Multi-Disc Support**: Integrated picker for multi-file games.
+    - **New in 0.6.0**: Fullscreen toggle (F11, "Start in fullscreen" setting, or `--fullscreen`) and a cover size slider in the library top bar.
 - **Controller Support**:
     - **New**: Polarity-encoded axis keys (`left_x+` / `left_x-`) for full analog stick and hat switch mapping.
     - **New**: SDL GameControllerDB hat switch format (`h0.1`, `h0.2`, etc.) fully parsed for auto-mapping.
     - **New**: Reset controller mapping button to clear a broken custom profile.
     - **New**: Save button disabled when sniff wizard produces an empty mapping.
+
+- **RetroAchievements**: Connect your account in Settings; unlocks are matched with RomM and RetroArch logs in automatically.
+- **More platforms out of the box**: ScummVM, Sega 32X (PicoDrive), TurboGrafx-CD / PC Engine CD (Beetle PCE), and RomM's alternate platform slugs are now recognised.
+- **Headless mode**: Scriptable `list` / `download` / `launch` without a window (see below).
 
 ## Headless Mode (early preview)
 
@@ -110,6 +118,7 @@ freegosy.exe --headless                 (same as interactive)
 | **Azahar** | 🟢 Full | 3DS — confirmed working by [@Ramza2k](https://github.com/Ramza2k). |
 | **RPCS3** | 🟡 Partial | PS3 — confirmed working on Windows, needs macOS/Linux testing. |
 | **Xenia** | 🟡 Partial | Xbox 360 — confirmed working on Windows, needs macOS/Linux testing. |
+| **ScummVM** | 🟡 Partial | Games on the `scummvm` platform auto-detect and launch from their folder. Save sync not yet supported. |
 | **Ares** | 🟡 Partial | Multi-system (GBA, SNES, N64, Genesis, PS1, MSX, etc.). PlayStation confirmed working on Windows — Ares bundles the memory card together with save-state files in a per-game `.zip`, now correctly unpacked/repacked on push and pull. Other systems still need real-world testing. |
 | **Windows Native** | 🟡 Partial | PC games — confirmed working on Windows. |
 
