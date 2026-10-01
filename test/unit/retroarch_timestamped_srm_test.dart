@@ -11,7 +11,7 @@ import 'package:path/path.dart' as p;
 
 import 'save_sync_regression_test.mocks.dart';
 
-/// A web-player save named "<game> [timestamp].srm" must land as the ROM's
+/// A web-player save named "game [timestamp].srm" must land as the ROM's
 /// `<rom>.srm`, which is what a RetroArch core opens (issue #24).
 void main() {
   late Directory tempDir;

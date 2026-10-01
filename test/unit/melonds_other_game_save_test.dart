@@ -129,21 +129,21 @@ void main() {
     test('a zip with a .srm is extracted (was skipped before)', () async {
       final zip = ZipEncoder().encode(Archive()
         ..addFile(ArchiveFile('Test Monster - White Version.srm', 2, [4, 4]))
-        ..addFile(ArchiveFile('freegosy_sync.txt', 1, [0])))!;
+        ..addFile(ArchiveFile('freegosy_sync.txt', 1, [0])));
       await Directory(romDir).create(recursive: true);
       await strategy.restoreSave(game, romPath, Uint8List.fromList(zip), 'save.zip');
       expect(File(p.join(romDir, 'Test Monster - White Version.sav')).readAsBytesSync(), [4, 4]);
     });
 
     test('a zip with a .sav is extracted', () async {
-      final zip = ZipEncoder().encode(Archive()..addFile(ArchiveFile('x.sav', 2, [3, 3])))!;
+      final zip = ZipEncoder().encode(Archive()..addFile(ArchiveFile('x.sav', 2, [3, 3])));
       await Directory(romDir).create(recursive: true);
       await strategy.restoreSave(game, romPath, Uint8List.fromList(zip), 'save.zip');
       expect(File(p.join(romDir, 'Test Monster - White Version.sav')).readAsBytesSync(), [3, 3]);
     });
 
     test('a zip without any save writes nothing and does not fail', () async {
-      final zip = ZipEncoder().encode(Archive()..addFile(ArchiveFile('readme.txt', 1, [1])))!;
+      final zip = ZipEncoder().encode(Archive()..addFile(ArchiveFile('readme.txt', 1, [1])));
       await Directory(romDir).create(recursive: true);
       expect(await strategy.restoreSave(game, romPath, Uint8List.fromList(zip), 'save.zip'), isTrue);
       expect(Directory(romDir).listSync(), isEmpty);
