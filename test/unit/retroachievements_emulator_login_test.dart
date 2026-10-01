@@ -92,7 +92,7 @@ void main() {
           .toRetroArchConfig();
       expect(cfg, contains('cheevos_username = "ab"'));
       expect(cfg, contains('cheevos_token = "tcheevos_x = 1"'));
-      expect(cfg.trim().split('\n'), hasLength(5));
+      expect(cfg.trim().split('\n'), hasLength(6)); // incl. the always-written hardcore line
     });
   });
 
