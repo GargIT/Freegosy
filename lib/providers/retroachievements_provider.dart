@@ -150,6 +150,19 @@ final retroAchievementsConnectProvider =
 final retroAchievementsDisconnectProvider = Provider<Future<void> Function()>((ref) {
   return () async {
     final prefs = ref.read(appPreferencesProvider);
+    final username = prefs.getString(kRaUsernameKey) ?? '';
+    // Emulators that keep the login in their own config (PCSX2) get it taken
+    // back out; one that signs in per launch (RetroArch) has only a file to delete.
+    if (username.isNotEmpty) {
+      try {
+        final registry = await ref.read(strategyRegistryProvider.future);
+        for (final strategy in registry?.allStrategies ?? const []) {
+          if (strategy.supportsRetroAchievementsLogin) await strategy.clearRetroAchievementsLogin(username);
+        }
+      } catch (_) {
+        // Disconnecting never fails over an emulator's config.
+      }
+    }
     await prefs.remove(kRaUsernameKey);
     await prefs.remove(kRaHardcoreKey);
     await SecureStorageService.delete(kRaWebApiKeySecureKey, prefs);

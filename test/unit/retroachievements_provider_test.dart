@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:freegosy/core/retroachievements/retroachievements_emulator_login.dart';
 import 'package:freegosy/core/retroachievements/retroachievements_models.dart';
 import 'package:freegosy/providers/retroachievements_provider.dart';
+import 'package:freegosy/providers/romm_provider.dart';
 import 'package:freegosy/providers/shared_prefs_provider.dart';
 
 import '../helpers/fake_retroachievements.dart';
@@ -22,6 +23,8 @@ void main() {
     container = ProviderContainer(overrides: [
       appPreferencesProvider.overrideWithValue(prefs),
       retroAchievementsServiceProvider.overrideWithValue(service),
+      // Disconnect also asks every emulator to forget the login; none here.
+      strategyRegistryProvider.overrideWith((ref) async => null),
     ]);
   });
 

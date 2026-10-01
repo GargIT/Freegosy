@@ -4,13 +4,20 @@ import 'package:path/path.dart' as p;
 import 'package:freegosy/core/emulator/emulator_strategy.dart';
 import 'package:freegosy/core/emulator/pe_version_reader.dart';
 import 'package:freegosy/core/platform/platform_info.dart';
+import 'package:freegosy/core/retroachievements/retroachievements_emulator_login.dart';
 import 'package:freegosy/core/romm/romm_models.dart';
 import 'package:freegosy/core/storage/directory_service.dart';
+import 'package:freegosy/core/storage/ini_file.dart';
 
 class Pcsx2Strategy extends EmulatorStrategy {
   final DirectoryService _directoryService;
+  final Future<RetroAchievementsEmulatorLogin?> Function()? _raLoginLoader;
 
-  Pcsx2Strategy(this._directoryService, {super.platform});
+  Pcsx2Strategy(
+    this._directoryService, {
+    super.platform,
+    Future<RetroAchievementsEmulatorLogin?> Function()? raLoginLoader,
+  }) : _raLoginLoader = raLoginLoader;
 
   @override
   DirectoryService get directoryService => _directoryService;
@@ -45,6 +52,9 @@ class Pcsx2Strategy extends EmulatorStrategy {
   @override
   bool get supportsStateLoadOnLaunch => true;
 
+  @override
+  bool get supportsRetroAchievementsLogin => true;
+
   /// PCSX2: `-statefile <filename>` loads the given state at boot.
   @override
   List<String> stateLoadArgs(String statePath) => ['-statefile', statePath];
@@ -71,6 +81,141 @@ class Pcsx2Strategy extends EmulatorStrategy {
       }
     }
     return '';
+  }
+
+  // ── RetroAchievements ────────────────────────────────────────
+
+  static const _raSection = 'Achievements';
+
+  /// PCSX2's settings folder (`inis`, holding PCSX2.ini and secrets.ini):
+  /// the Flatpak's, the portable install's (portable.ini beside a real
+  /// executable; an AppImage doesn't count, PCSX2 looks for it inside the
+  /// mounted image), else the platform's default. Null when it can't be told.
+  @visibleForTesting
+  Future<String?> settingsDirectory() async {
+    final home = platform.environment['HOME'] ?? '';
+    final exe = await findExecutable();
+    if (exe != null && exe.startsWith('flatpak ')) {
+      final package = exe.split(' ').last;
+      return p.join(home, '.var', 'app', package, 'config', 'PCSX2', 'inis');
+    }
+    if (exe != null && !exe.toLowerCase().endsWith('.appimage')) {
+      var exeDir = io.File(exe).parent.path;
+      if (platform.isMacOS && exe.contains('.app/Contents/MacOS/')) {
+        exeDir = io.File(exe).parent.parent.parent.parent.path;
+      }
+      if (await io.File(p.join(exeDir, 'portable.ini')).exists()) return p.join(exeDir, 'inis');
+    }
+    if (platform.isWindows) {
+      final profile = platform.environment['USERPROFILE'];
+      return profile == null || profile.isEmpty ? null : p.join(profile, 'Documents', 'PCSX2', 'inis');
+    }
+    if (platform.isMacOS) {
+      return home.isEmpty ? null : p.join(home, 'Library', 'Application Support', 'PCSX2', 'inis');
+    }
+    final xdg = platform.environment['XDG_CONFIG_HOME'];
+    final config = xdg != null && xdg.isNotEmpty ? xdg : p.join(home, '.config');
+    return home.isEmpty && (xdg == null || xdg.isEmpty) ? null : p.join(config, 'PCSX2', 'inis');
+  }
+
+  /// Signs PCSX2 in before it starts. Never fails a launch.
+  @override
+  Future<void> preLaunch(Game game, String romPath) async {
+    try {
+      final login = await (_raLoginLoader ?? () => RetroAchievementsEmulatorLogin.load(_directoryService.prefs))();
+      if (login != null) await applyRetroAchievementsLogin(login);
+    } catch (e) {
+      debugPrint('[PCSX2] Skipping RetroAchievements login: $e');
+    }
+  }
+
+  /// PCSX2 has no command-line option for settings, so the login goes into
+  /// its files: `Enabled`, `Username`, `LoginTimestamp` and `ChallengeMode`
+  /// (hardcore, off unless turned on in Settings) in PCSX2.ini's
+  /// `[Achievements]`, and the token in secrets.ini beside it. Only the lines
+  /// that differ are changed, PCSX2.ini is copied to `PCSX2.ini.freegosy.bak`
+  /// first (once), and nothing is written before PCSX2 has run once (its
+  /// first-run setup would otherwise find a half-made config).
+  @override
+  Future<void> applyRetroAchievementsLogin(RetroAchievementsEmulatorLogin login) async {
+    try {
+      final dir = await settingsDirectory();
+      if (dir == null) return;
+      final iniFile = io.File(p.join(dir, 'PCSX2.ini'));
+      if (!await iniFile.exists()) {
+        debugPrint('[PCSX2] RetroAchievements login not applied: PCSX2 has not been run yet (no PCSX2.ini)');
+        return;
+      }
+
+      await _updateIni(io.File(p.join(dir, 'secrets.ini')), (secrets) => secrets.set(_raSection, 'Token', login.token),
+          private: true, create: true);
+
+      await _updateIni(iniFile, (config) {
+        var changed = false;
+        final newUser = config.get(_raSection, 'Username') != login.username;
+        changed |= config.set(_raSection, 'Enabled', 'true');
+        changed |= config.set(_raSection, 'Username', login.username);
+        if (newUser || config.get(_raSection, 'LoginTimestamp') == null) {
+          changed |= config.set(_raSection, 'LoginTimestamp', '${DateTime.now().millisecondsSinceEpoch ~/ 1000}');
+        }
+        changed |= config.set(_raSection, 'ChallengeMode', '${login.hardcore ?? false}');
+        return changed;
+      }, backup: true);
+    } catch (e) {
+      debugPrint('[PCSX2] Could not apply the RetroAchievements login: $e');
+    }
+  }
+
+  /// Takes a login for [username] back out: the token, the username and the
+  /// timestamp, and switches achievements off. A login for another account
+  /// (set up in PCSX2 itself) is left alone.
+  @override
+  Future<void> clearRetroAchievementsLogin(String username) async {
+    try {
+      final dir = await settingsDirectory();
+      if (dir == null) return;
+      final iniFile = io.File(p.join(dir, 'PCSX2.ini'));
+      if (!await iniFile.exists()) return;
+      final current = IniFile(await iniFile.readAsString()).get(_raSection, 'Username');
+      if (current == null || current.toLowerCase() != username.toLowerCase()) return;
+
+      await _updateIni(io.File(p.join(dir, 'secrets.ini')), (secrets) => secrets.remove(_raSection, 'Token'));
+      await _updateIni(iniFile, (config) {
+        var changed = false;
+        changed |= config.remove(_raSection, 'Username');
+        changed |= config.remove(_raSection, 'LoginTimestamp');
+        changed |= config.set(_raSection, 'Enabled', 'false');
+        return changed;
+      });
+    } catch (e) {
+      debugPrint('[PCSX2] Could not clear the RetroAchievements login: $e');
+    }
+  }
+
+  /// Reads [file] (empty when missing and [create]), runs [edit] on it and
+  /// writes it back only if [edit] reports a change. A [private] file is made
+  /// readable by its owner alone before anything secret goes into it.
+  Future<void> _updateIni(
+    io.File file,
+    bool Function(IniFile ini) edit, {
+    bool backup = false,
+    bool create = false,
+    bool private = false,
+  }) async {
+    final exists = await file.exists();
+    if (!exists && !create) return;
+    final ini = IniFile(exists ? await file.readAsString() : '');
+    if (!edit(ini)) return;
+    if (backup && exists) {
+      final copy = io.File('${file.path}.freegosy.bak');
+      if (!await copy.exists()) await file.copy(copy.path);
+    }
+    if (!exists) {
+      await file.parent.create(recursive: true);
+      await file.writeAsString('', flush: true);
+    }
+    if (private && !platform.isWindows) await io.Process.run('chmod', ['600', file.path]);
+    await file.writeAsString(ini.toText(), flush: true);
   }
 
   @override
