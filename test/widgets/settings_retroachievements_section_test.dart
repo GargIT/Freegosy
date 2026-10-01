@@ -65,7 +65,7 @@ void main() {
       expect(field('Username'), findsOneWidget);
       expect(field('Password (optional)'), findsOneWidget);
       expect(field('Web API Key (optional)'), findsOneWidget);
-      expect(find.text('Signs RetroArch and PCSX2 in to RetroAchievements. Used once, never stored.'), findsOneWidget);
+      expect(find.text('Signs RetroArch, PCSX2, PPSSPP and Dolphin in to RetroAchievements. Used once, never stored.'), findsOneWidget);
     });
 
     testWidgets('requires a username', (tester) async {
@@ -123,7 +123,7 @@ void main() {
       expect(find.text('Emulators won\'t be set up'), findsNothing);
       expect(prefs.getString(secureKey(kRaConnectTokenSecureKey)), 'tok123');
       expect(prefs.values.values, isNot(contains('hunter2')));
-      expect(find.text('RetroArch and PCSX2 are signed in at launch.'), findsOneWidget);
+      expect(find.text('RetroArch, PCSX2, PPSSPP and Dolphin are signed in at launch.'), findsOneWidget);
       expect(
         find.text('Progress comes from RomM only (if your server has RetroAchievements enabled).'),
         findsOneWidget,
@@ -157,7 +157,7 @@ void main() {
       await pumpSection(tester);
       expect(find.text('Player'), findsOneWidget);
       expect(find.text('Rank #1 — 100 points (200 hardcore)'), findsOneWidget);
-      expect(find.text('RetroArch and PCSX2 are signed in at launch.'), findsOneWidget);
+      expect(find.text('RetroArch, PCSX2, PPSSPP and Dolphin are signed in at launch.'), findsOneWidget);
       expect(find.text('Live progress from RetroAchievements.'), findsOneWidget);
     });
 

@@ -219,7 +219,7 @@ class _SettingsRetroAchievementsSectionState extends ConsumerState<SettingsRetro
             children: [
               Text(
                 'Connect your RetroAchievements account once here: Freegosy signs your emulators in when it '
-                'launches them (RetroArch and PCSX2 for now) and shows your progress on each game. '
+                'launches them (RetroArch, PCSX2, PPSSPP and Dolphin for now) and shows your progress on each game. '
                 'Achievements are still detected and unlocked by the emulator itself.',
                 style: TextStyle(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.8), fontSize: 13),
               ),
@@ -245,7 +245,7 @@ class _SettingsRetroAchievementsSectionState extends ConsumerState<SettingsRetro
                     'Password (optional)',
                     helperText: emulatorLogin != null
                         ? 'Emulators are signed in. Leave empty to keep that, or re-enter to refresh.'
-                        : 'Signs RetroArch and PCSX2 in to RetroAchievements. Used once, never stored.',
+                        : 'Signs RetroArch, PCSX2, PPSSPP and Dolphin in to RetroAchievements. Used once, never stored.',
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -400,7 +400,7 @@ class _SettingsRetroAchievementsSectionState extends ConsumerState<SettingsRetro
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         line(emulatorLogin != null,
-            emulatorLogin != null ? 'RetroArch and PCSX2 are signed in at launch.' : 'Emulators are not signed in — add your password to set them up.'),
+            emulatorLogin != null ? 'RetroArch, PCSX2, PPSSPP and Dolphin are signed in at launch.' : 'Emulators are not signed in — add your password to set them up.'),
         line(credentials.hasWebApiKey,
             credentials.hasWebApiKey ? 'Live progress from RetroAchievements.' : 'Progress comes from RomM only (if your server has RetroAchievements enabled).'),
         RetroAchievementsRommLink(username: credentials.username),

@@ -1,3 +1,5 @@
+import 'dart:io' as io;
+
 /// A small editor for `Key = Value` INI files (PCSX2, DuckStation, PPSSPP,
 /// Dolphin...) that changes only the lines asked for. Everything else —
 /// comments, order, unknown sections, the file's line endings — is written
@@ -85,4 +87,34 @@ class IniFile {
 
   /// The file's text, ending in a line break unless the file is empty.
   String toText() => _lines.isEmpty ? '' : '${_lines.join(_eol)}$_eol';
+}
+
+/// Reads [file] (an empty ini when it is missing and [create]), runs [edit] on
+/// it and writes it back only if [edit] reports a change; returns whether it
+/// did. [backup] copies an existing file to `<name>.freegosy.bak` first, once.
+/// A [private] file is made readable by its owner alone (`chmod 600`, not on
+/// [windows]) before anything secret goes into it.
+Future<bool> updateIniFile(
+  io.File file,
+  bool Function(IniFile ini) edit, {
+  bool backup = false,
+  bool create = false,
+  bool private = false,
+  bool windows = false,
+}) async {
+  final exists = await file.exists();
+  if (!exists && !create) return false;
+  final ini = IniFile(exists ? await file.readAsString() : '');
+  if (!edit(ini)) return false;
+  if (backup && exists) {
+    final copy = io.File('${file.path}.freegosy.bak');
+    if (!await copy.exists()) await file.copy(copy.path);
+  }
+  if (!exists) {
+    await file.parent.create(recursive: true);
+    await file.writeAsString('', flush: true);
+  }
+  if (private && !windows) await io.Process.run('chmod', ['600', file.path]);
+  await file.writeAsString(ini.toText(), flush: true);
+  return true;
 }
