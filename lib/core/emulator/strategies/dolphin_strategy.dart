@@ -91,14 +91,45 @@ class DolphinStrategy extends EmulatorStrategy {
     return result;
   }
 
+  /// Where Dolphin will keep its config when it has not made one yet: the
+  /// Flatpak's, else the XDG folder on Linux; the portable `User/Config` when
+  /// `portable.txt` sits beside the Windows executable, else `Documents` (if
+  /// Dolphin's folder is there) or `%APPDATA%`; macOS Application Support.
+  @visibleForTesting
+  Future<String?> preferredConfigDirectory() async {
+    final home = platform.environment['HOME'] ?? '';
+    final exe = await findExecutable();
+    if (platform.isLinux) {
+      if (home.isEmpty) return null;
+      if (exe != null && exe.startsWith('flatpak ')) {
+        return p.join(home, '.var', 'app', 'org.DolphinEmu.dolphin-emu', 'config', 'dolphin-emu');
+      }
+      final xdg = platform.environment['XDG_CONFIG_HOME'];
+      return p.join(xdg != null && xdg.isNotEmpty ? xdg : p.join(home, '.config'), 'dolphin-emu');
+    }
+    if (platform.isWindows) {
+      if (exe != null) {
+        final exeDir = io.File(exe).parent.path;
+        if (await io.File(p.join(exeDir, 'portable.txt')).exists()) return p.join(exeDir, 'User', 'Config');
+      }
+      final profile = platform.environment['USERPROFILE'];
+      if (profile != null && profile.isNotEmpty && await io.Directory(p.join(profile, 'Documents', 'Dolphin Emulator')).exists()) {
+        return p.join(profile, 'Documents', 'Dolphin Emulator', 'Config');
+      }
+      final appData = platform.environment['APPDATA'];
+      return appData == null || appData.isEmpty ? null : p.join(appData, 'Dolphin Emulator', 'Config');
+    }
+    return home.isEmpty ? null : p.join(home, 'Library', 'Application Support', 'Dolphin', 'Config');
+  }
+
   /// The first candidate folder where Dolphin has already made its
-  /// Dolphin.ini, or null (Dolphin has not run yet, or its folder isn't one
-  /// we know).
-  Future<String?> _configDirectory() async {
+  /// Dolphin.ini, else (Dolphin not run yet) [preferredConfigDirectory]:
+  /// RetroAchievements.ini is a file of its own, so writing it first is safe.
+  Future<String?> _configDirectory({bool createIfMissing = false}) async {
     for (final dir in await candidateConfigDirectories()) {
       if (await io.File(p.join(dir, 'Dolphin.ini')).exists()) return dir;
     }
-    return null;
+    return createIfMissing ? await preferredConfigDirectory() : null;
   }
 
   /// Signs Dolphin in before it starts. Never fails a launch.
@@ -116,14 +147,13 @@ class DolphinStrategy extends EmulatorStrategy {
   /// put the token on the process list), so the login goes into
   /// `RetroAchievements.ini`: `Enabled`, `Username`, `ApiToken` and
   /// `HardcoreEnabled` (off unless turned on in Settings) in `[Achievements]`.
-  /// The file is owner-readable only, other lines are left alone, and nothing
-  /// is written before Dolphin has run once (no Dolphin.ini).
+  /// The file is owner-readable only and other lines are left alone.
   @override
   Future<void> applyRetroAchievementsLogin(RetroAchievementsEmulatorLogin login) async {
     try {
-      final dir = await _configDirectory();
+      final dir = await _configDirectory(createIfMissing: true);
       if (dir == null) {
-        debugPrint('[Dolphin] RetroAchievements login not applied: no Dolphin.ini found (has Dolphin been run?)');
+        debugPrint('[Dolphin] RetroAchievements login not applied: Dolphin\'s config folder is not known here');
         return;
       }
       await updateIniFile(io.File(p.join(dir, _raFileName)), (config) {

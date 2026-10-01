@@ -121,9 +121,31 @@ void main() {
       expect(await raIni().exists(), isFalse);
     });
 
-    test('does nothing before Dolphin has run (no Dolphin.ini)', () async {
+    test('signs in on the very first launch: with no Dolphin.ini yet it writes to the default folder', () async {
       await (await build()).applyRetroAchievementsLogin(login);
+      expect(IniFile(await raIni().readAsString()).get('Achievements', 'Username'), 'Player');
+    });
+
+    test('before its first run the Flatpak gets the login in its own config folder', () async {
+      await (await build(exe: 'flatpak run org.DolphinEmu.dolphin-emu')).applyRetroAchievementsLogin(login);
+      final flatpak = p.join(home.path, '.var', 'app', 'org.DolphinEmu.dolphin-emu', 'config', 'dolphin-emu');
+      expect(await io.File(p.join(flatpak, 'RetroAchievements.ini')).exists(), isTrue);
       expect(await raIni().exists(), isFalse);
+    });
+
+    test('before its first run, a portable Windows install (portable.txt) gets User/Config', () async {
+      final exe = p.join(home.path, 'Dolphin', 'Dolphin.exe');
+      await io.File(p.join(p.dirname(exe), 'portable.txt')).create(recursive: true);
+      final strategy = await build(exe: exe, platform: PlatformInfo('windows', environment: {'USERPROFILE': home.path, 'APPDATA': '${home.path}/AppData'}));
+      expect(await strategy.preferredConfigDirectory(), p.join(home.path, 'Dolphin', 'User', 'Config'));
+    });
+
+    test('before its first run, Windows falls back to Documents (if Dolphin\'s folder is there) or APPDATA', () async {
+      final env = {'USERPROFILE': home.path, 'APPDATA': '${home.path}/AppData'};
+      final noDocs = await build(platform: PlatformInfo('windows', environment: env));
+      expect(await noDocs.preferredConfigDirectory(), p.join(home.path, 'AppData', 'Dolphin Emulator', 'Config'));
+      await io.Directory(p.join(home.path, 'Documents', 'Dolphin Emulator')).create(recursive: true);
+      expect(await noDocs.preferredConfigDirectory(), p.join(home.path, 'Documents', 'Dolphin Emulator', 'Config'));
     });
   });
 

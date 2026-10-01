@@ -24,6 +24,13 @@ const List<Map<String, dynamic>> kEmulatorDefinitions = [
     'asset_required_windows': ['x64', '.7z'],
     'asset_required_macos': ['universal', '.dmg'],
     'asset_required_linux': ['x86_64', '.flatpak'],
+    // Dolphin's own site only offers a Flatpak bundle for Linux, which can't be
+    // run once copied into the emulators folder. On Linux the community AppImage
+    // build is used instead (see EmulatorDownloadService.typeFor).
+    'linux_type': 'github',
+    'github_repo': 'pkgforge-dev/Dolphin-emu-AppImage',
+    'github_asset_required_linux': ['anylinux', 'x86_64', '.AppImage'],
+    'github_asset_excluded_linux': ['zsync'],
     'windows_executable': 'Dolphin.exe',
     'linux_executable': 'Dolphin.AppImage',
     'macos_executable': 'Dolphin.app/Contents/MacOS/Dolphin',
