@@ -92,6 +92,41 @@ class NativeLinuxStrategy extends LinuxEnvironmentStrategy {
       io.Directory(p.join(home, '.local', 'bin')),
       io.Directory(p.join(home, 'bin')),
     ];
+    final found = await _findInDirs(searchDirs, emulatorId, executableName);
+    if (found != null) return found;
+
+    // 3. Check if a Flatpak is installed for this emulator
+    final flatpakPkg = await _flatpakPackageFor(emulatorId);
+    if (flatpakPkg != null) {
+      // Return the Flatpak command string — the launch method will handle it
+      return 'flatpak run $flatpakPkg';
+    }
+
+    return null;
+  }
+
+  /// An executable or AppImage for [emulatorId] inside the user-chosen
+  /// [folder] or one level below it (a release archive extracts into its own
+  /// subfolder), matched the same way as the default locations.
+  @override
+  Future<String?> findAppImageInFolder(String folder, String emulatorId, String executableName) async {
+    final dirs = <io.Directory>[io.Directory(folder)];
+    try {
+      final nested = <io.Directory>[];
+      await for (final entry in io.Directory(folder).list()) {
+        if (entry is io.Directory) nested.add(entry);
+      }
+      nested.sort((a, b) => a.path.compareTo(b.path));
+      dirs.addAll(nested);
+    } catch (_) {
+      // Missing or unreadable folder: nothing to find.
+    }
+    return _findInDirs(dirs, emulatorId, executableName);
+  }
+
+  /// The first file in [dirs] (searched in order, not recursively) named
+  /// [executableName], or an AppImage whose name fits [emulatorId].
+  Future<String?> _findInDirs(List<io.Directory> dirs, String emulatorId, String executableName) async {
     final targetLower = executableName.toLowerCase();
     final targetStem = targetLower.replaceAll(RegExp(r'\.appimage$'), '');
     // Names to match AppImage files against, e.g. "pcsx2-qt" -> {pcsx2-qt, pcsx2}
@@ -102,7 +137,7 @@ class NativeLinuxStrategy extends LinuxEnvironmentStrategy {
       idLower,
     }..removeWhere((n) => n.isEmpty);
 
-    for (final dir in searchDirs) {
+    for (final dir in dirs) {
       if (!await dir.exists()) continue;
 
       // Exact name match
@@ -132,14 +167,6 @@ class NativeLinuxStrategy extends LinuxEnvironmentStrategy {
         // Silently ignore permission errors or other listing issues
       }
     }
-
-    // 3. Check if a Flatpak is installed for this emulator
-    final flatpakPkg = await _flatpakPackageFor(emulatorId);
-    if (flatpakPkg != null) {
-      // Return the Flatpak command string — the launch method will handle it
-      return 'flatpak run $flatpakPkg';
-    }
-
     return null;
   }
 

@@ -581,6 +581,12 @@ class DirectoryService {
           final withExe = File(p.join(override, '$executableName.exe'));
           if (await withExe.exists()) return withExe.path;
         }
+        // A folder holding an AppImage (named e.g. RetroArch-Linux-x86_64.AppImage),
+        // directly or one subfolder down.
+        if (_platform.isLinux) {
+          final appImage = await activeLinuxEnvironment.findAppImageInFolder(override, emulatorId, executableName);
+          if (appImage != null) return appImage;
+        }
       }
     }
 
