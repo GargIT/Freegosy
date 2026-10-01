@@ -79,4 +79,27 @@ void main() {
       expect(retrieved, overridePath);
     });
   });
+
+  group('DirectoryService Flatpak override', () {
+    late DirectoryService directoryService;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      directoryService = DirectoryService(SharedPreferencesAppPreferences(await SharedPreferences.getInstance()));
+    });
+
+    test('an override for an installed Flatpak is used', () async {
+      directoryService.flatpakInstalledCheck = (_) async => true;
+      await directoryService.setEmulatorFlatpakOverride('retroarch', 'org.libretro.RetroArch');
+
+      expect(await directoryService.getEffectiveFlatpakPackage('retroarch'), 'org.libretro.RetroArch');
+    });
+
+    test('an override for a Flatpak that is not installed is skipped, so another install can be used', () async {
+      directoryService.flatpakInstalledCheck = (_) async => false;
+      await directoryService.setEmulatorFlatpakOverride('retroarch', 'org.libretro.RetroArch');
+
+      expect(await directoryService.getEffectiveFlatpakPackage('retroarch'), isNull);
+    });
+  });
 }
