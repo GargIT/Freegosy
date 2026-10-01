@@ -34,6 +34,13 @@ void main() {
       expect(await strategy.findExecutable('duckstation', 'DuckStation.AppImage', root.path, null), expected);
     });
 
+    test('finds an AppImage in the subfolder its release archive extracted to', () async {
+      final expected = await touch('retroarch/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage');
+      await io.Directory(p.join(root.path, 'retroarch', 'RetroArch-Linux-x86_64', 'RetroArch-Linux-x86_64.AppImage.home'))
+          .create(recursive: true);
+      expect(await strategy.findExecutable('retroarch', 'retroarch', root.path, null), expected);
+    });
+
     test('matches registry name with suffix against bare id (pcsx2-qt)', () async {
       final expected = await touch('pcsx2-v2.3.0-linux-appimage-x64-Qt.AppImage');
       expect(await strategy.findExecutable('pcsx2', 'pcsx2-qt.AppImage', root.path, null), expected);

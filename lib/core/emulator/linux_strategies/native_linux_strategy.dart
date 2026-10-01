@@ -68,8 +68,24 @@ class NativeLinuxStrategy extends LinuxEnvironmentStrategy {
     // 2. Check common AppImage locations (emulator folder, Emulators root,
     //    EmuDeck, Gear Lever, manual installs)
     final home = _platform.environment['HOME'] ?? '';
+    // A release archive extracts into its own subfolder, e.g.
+    // retroarch/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage, so
+    // the emulator's folder is searched one level down as well.
+    final emulatorDir = io.Directory(p.join(emulatorsRoot, emulatorId));
+    final nestedDirs = <io.Directory>[];
+    try {
+      if (await emulatorDir.exists()) {
+        await for (final entry in emulatorDir.list()) {
+          if (entry is io.Directory) nestedDirs.add(entry);
+        }
+        nestedDirs.sort((a, b) => a.path.compareTo(b.path));
+      }
+    } catch (_) {
+      // Unreadable folder: search the rest.
+    }
     final searchDirs = [
-      io.Directory(p.join(emulatorsRoot, emulatorId)),
+      emulatorDir,
+      ...nestedDirs,
       io.Directory(emulatorsRoot),
       io.Directory(p.join(home, 'Applications')),
       io.Directory(p.join(home, 'AppImages')),
