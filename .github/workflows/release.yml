@@ -174,7 +174,7 @@ jobs:
         run: |
           WANT="${{ github.event.inputs.version }}"
           WANT="${WANT#v}"
-          HAVE=$(grep -m1 '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//' | tr -d '')
+          HAVE=$(grep -m1 '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//' | tr -d '[:cntrl:]')
           # pre-release suffixes (0.6.1-pre) are not part of pubspec's version
           if [ "${WANT%%-*}" != "$HAVE" ]; then
             echo "::error::pubspec.yaml is $HAVE but release is $WANT - bump pubspec first"
