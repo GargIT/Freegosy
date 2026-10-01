@@ -68,14 +68,70 @@ class NativeLinuxStrategy extends LinuxEnvironmentStrategy {
     // 2. Check common AppImage locations (emulator folder, Emulators root,
     //    EmuDeck, Gear Lever, manual installs)
     final home = _platform.environment['HOME'] ?? '';
+    // A release archive extracts into its own subfolder, e.g.
+    // retroarch/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage, so
+    // the emulator's folder is searched one level down as well.
+    final emulatorDir = io.Directory(p.join(emulatorsRoot, emulatorId));
+    final nestedDirs = <io.Directory>[];
+    try {
+      if (await emulatorDir.exists()) {
+        await for (final entry in emulatorDir.list()) {
+          if (entry is io.Directory) nestedDirs.add(entry);
+        }
+        nestedDirs.sort((a, b) => a.path.compareTo(b.path));
+      }
+    } catch (_) {
+      // Unreadable folder: search the rest.
+    }
     final searchDirs = [
-      io.Directory(p.join(emulatorsRoot, emulatorId)),
+      emulatorDir,
+      ...nestedDirs,
       io.Directory(emulatorsRoot),
       io.Directory(p.join(home, 'Applications')),
       io.Directory(p.join(home, 'AppImages')),
       io.Directory(p.join(home, '.local', 'bin')),
       io.Directory(p.join(home, 'bin')),
     ];
+    final found = await _findInDirs(searchDirs, emulatorId, executableName);
+    if (found != null) return found;
+
+    // 3. Check if a Flatpak is installed for this emulator
+    final flatpakPkg = await _flatpakPackageFor(emulatorId);
+    if (flatpakPkg != null) {
+      // Return the Flatpak command string — the launch method will handle it
+      return 'flatpak run $flatpakPkg';
+    }
+
+    return null;
+  }
+
+  /// An executable or AppImage for [emulatorId] inside the user-chosen
+  /// [folder] or one level below it (a release archive extracts into its own
+  /// subfolder), matched the same way as the default locations.
+  @override
+  Future<String?> findAppImageInFolder(String folder, String emulatorId, String executableName) async {
+    final dirs = <io.Directory>[io.Directory(folder)];
+    // An AppImage's portable data folder (<name>.AppImage.home) is the easy
+    // one to pick by mistake: the AppImage itself sits beside it.
+    if (folder.toLowerCase().replaceAll(RegExp(r'[\\/]+$'), '').endsWith('.appimage.home')) {
+      dirs.add(io.Directory(p.dirname(p.normalize(folder))));
+    }
+    try {
+      final nested = <io.Directory>[];
+      await for (final entry in io.Directory(folder).list()) {
+        if (entry is io.Directory) nested.add(entry);
+      }
+      nested.sort((a, b) => a.path.compareTo(b.path));
+      dirs.addAll(nested);
+    } catch (_) {
+      // Missing or unreadable folder: nothing to find.
+    }
+    return _findInDirs(dirs, emulatorId, executableName);
+  }
+
+  /// The first file in [dirs] (searched in order, not recursively) named
+  /// [executableName], or an AppImage whose name fits [emulatorId].
+  Future<String?> _findInDirs(List<io.Directory> dirs, String emulatorId, String executableName) async {
     final targetLower = executableName.toLowerCase();
     final targetStem = targetLower.replaceAll(RegExp(r'\.appimage$'), '');
     // Names to match AppImage files against, e.g. "pcsx2-qt" -> {pcsx2-qt, pcsx2}
@@ -86,7 +142,7 @@ class NativeLinuxStrategy extends LinuxEnvironmentStrategy {
       idLower,
     }..removeWhere((n) => n.isEmpty);
 
-    for (final dir in searchDirs) {
+    for (final dir in dirs) {
       if (!await dir.exists()) continue;
 
       // Exact name match
@@ -116,14 +172,6 @@ class NativeLinuxStrategy extends LinuxEnvironmentStrategy {
         // Silently ignore permission errors or other listing issues
       }
     }
-
-    // 3. Check if a Flatpak is installed for this emulator
-    final flatpakPkg = await _flatpakPackageFor(emulatorId);
-    if (flatpakPkg != null) {
-      // Return the Flatpak command string — the launch method will handle it
-      return 'flatpak run $flatpakPkg';
-    }
-
     return null;
   }
 

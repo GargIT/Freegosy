@@ -34,6 +34,32 @@ void main() {
       expect(await strategy.findExecutable('duckstation', 'DuckStation.AppImage', root.path, null), expected);
     });
 
+    test('finds an AppImage in the subfolder its release archive extracted to', () async {
+      final expected = await touch('retroarch/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage');
+      await io.Directory(p.join(root.path, 'retroarch', 'RetroArch-Linux-x86_64', 'RetroArch-Linux-x86_64.AppImage.home'))
+          .create(recursive: true);
+      expect(await strategy.findExecutable('retroarch', 'retroarch', root.path, null), expected);
+    });
+
+    test('a user-chosen folder is searched for the AppImage, and one subfolder down', () async {
+      final nested = await touch('mine/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage');
+      expect(await strategy.findAppImageInFolder(p.join(root.path, 'mine'), 'retroarch', 'retroarch'), nested);
+      expect(await strategy.findAppImageInFolder(p.join(root.path, 'mine', 'RetroArch-Linux-x86_64'), 'retroarch', 'retroarch'), nested);
+    });
+
+    test("choosing an AppImage's .home data folder finds the AppImage beside it", () async {
+      final appImage = await touch('retroarch/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage');
+      final home = p.join(root.path, 'retroarch', 'RetroArch-Linux-x86_64', 'RetroArch-Linux-x86_64.AppImage.home');
+      await io.Directory(p.join(home, '.config')).create(recursive: true);
+      expect(await strategy.findAppImageInFolder('$home/', 'retroarch', 'retroarch'), appImage);
+    });
+
+    test('a user-chosen folder with no matching executable finds nothing', () async {
+      await touch('other/readme.txt');
+      expect(await strategy.findAppImageInFolder(p.join(root.path, 'other'), 'retroarch', 'retroarch'), isNull);
+      expect(await strategy.findAppImageInFolder(p.join(root.path, 'missing'), 'retroarch', 'retroarch'), isNull);
+    });
+
     test('matches registry name with suffix against bare id (pcsx2-qt)', () async {
       final expected = await touch('pcsx2-v2.3.0-linux-appimage-x64-Qt.AppImage');
       expect(await strategy.findExecutable('pcsx2', 'pcsx2-qt.AppImage', root.path, null), expected);

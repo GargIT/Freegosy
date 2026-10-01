@@ -77,9 +77,9 @@ void main() {
       expect(cfg, endsWith('\n'));
     });
 
-    test('omits hardcore line when unset, leaving the user\'s own setting alone', () {
+    test('turns hardcore off when unset, whatever the user\'s own retroarch.cfg says', () {
       final cfg = const RetroAchievementsEmulatorLogin(username: 'u', token: 't').toRetroArchConfig();
-      expect(cfg, isNot(contains('cheevos_hardcore_mode_enable')));
+      expect(cfg, contains('cheevos_hardcore_mode_enable = "false"'));
     });
 
     test('writes hardcore line once the user has set it explicitly', () {
@@ -92,7 +92,7 @@ void main() {
           .toRetroArchConfig();
       expect(cfg, contains('cheevos_username = "ab"'));
       expect(cfg, contains('cheevos_token = "tcheevos_x = 1"'));
-      expect(cfg.trim().split('\n'), hasLength(5));
+      expect(cfg.trim().split('\n'), hasLength(6)); // incl. the always-written hardcore line
     });
   });
 

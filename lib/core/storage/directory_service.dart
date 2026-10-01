@@ -262,6 +262,7 @@ class DirectoryService {
       await _prefs.setString('emu_flatpak_$emulatorId', packageId);
       _emulatorFlatpakOverrides[emulatorId] = packageId;
     }
+    _flatpakInstalledCache.clear();
   }
 
   String? getEmulatorFlatpakOverride(String emulatorId) => _emulatorFlatpakOverrides[emulatorId];
@@ -270,13 +271,15 @@ class DirectoryService {
   /// a user-set override, falling back to auto-detection via the active
   /// Linux environment strategy.
   ///
-  /// Only returns a package that is actually installed on the system.
-  /// The static known mapping is not used as a fallback to avoid
-  /// false-positive "installed" status (issue #39).
+  /// Only returns a package that is actually installed on the system, so a
+  /// launch falls back to an AppImage or other install when it isn't (an
+  /// override for a Flatpak that was uninstalled is skipped). The static known
+  /// mapping is not used as a fallback to avoid false-positive "installed"
+  /// status (issue #39).
   Future<String?> getEffectiveFlatpakPackage(String emulatorId) async {
     // 1. User override (set via Settings > Emulators > [...] > Set Flatpak Package)
     final override = getEmulatorFlatpakOverride(emulatorId);
-    if (override != null && override.isNotEmpty) return override;
+    if (override != null && override.isNotEmpty && await _isFlatpakInstalled(override)) return override;
 
     // 2. Auto-detect via Linux environment strategy
     //    This runs `flatpak list --app --columns=application` to check
@@ -287,6 +290,33 @@ class DirectoryService {
     }
 
     return null;
+  }
+
+  /// Test seam: answers whether a Flatpak package is installed.
+  @visibleForTesting
+  Future<bool> Function(String package)? flatpakInstalledCheck;
+
+  final Map<String, ({bool installed, DateTime at})> _flatpakInstalledCache = {};
+
+  /// Whether Flatpak [package] is installed (`flatpak info`), remembered for
+  /// 30 s because launches ask repeatedly. When the `flatpak` command itself
+  /// can't be run, the package counts as installed: a PATH that lacks it
+  /// (some Steam Deck sessions) must not drop an override that worked before.
+  Future<bool> _isFlatpakInstalled(String package) async {
+    final cached = _flatpakInstalledCache[package];
+    if (cached != null && DateTime.now().difference(cached.at) < const Duration(seconds: 30)) {
+      return cached.installed;
+    }
+    bool installed;
+    try {
+      installed = flatpakInstalledCheck != null
+          ? await flatpakInstalledCheck!(package)
+          : (await io.Process.run('flatpak', ['info', package], runInShell: true)).exitCode == 0;
+    } catch (_) {
+      installed = true;
+    }
+    _flatpakInstalledCache[package] = (installed: installed, at: DateTime.now());
+    return installed;
   }
 
   Future<StorageStatus> _ensureDirectoryExists(String path) async {
@@ -550,6 +580,12 @@ class DirectoryService {
         if (_platform.isWindows && !executableName.toLowerCase().endsWith('.exe')) {
           final withExe = File(p.join(override, '$executableName.exe'));
           if (await withExe.exists()) return withExe.path;
+        }
+        // A folder holding an AppImage (named e.g. RetroArch-Linux-x86_64.AppImage),
+        // directly or one subfolder down.
+        if (_platform.isLinux) {
+          final appImage = await activeLinuxEnvironment.findAppImageInFolder(override, emulatorId, executableName);
+          if (appImage != null) return appImage;
         }
       }
     }

@@ -107,6 +107,11 @@ abstract class LinuxEnvironmentStrategy {
   /// Tries to find the executable for an emulator.
   Future<String?> findExecutable(String emulatorId, String executableName, String emulatorsRoot, String? emudeckRoot);
 
+  /// An executable or AppImage for [emulatorId] in a user-chosen [folder] or
+  /// one level below it, or null. Only the default Linux layout looks for
+  /// AppImages; the EmuDeck and RetroDECK layouts use fixed paths.
+  Future<String?> findAppImageInFolder(String folder, String emulatorId, String executableName) async => null;
+
   /// Launches a game.
   Future<void> launch(Game game, String romPath, String emulatorId, String exePath, {List<String> args = const []});
 

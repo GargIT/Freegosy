@@ -15,10 +15,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// A DirectoryService that finds no installed emulator, so a test never needs
 /// the app's emulators folder.
 class _NoEmulatorsDirectoryService extends DirectoryService {
-  _NoEmulatorsDirectoryService(super.prefs);
+  _NoEmulatorsDirectoryService(super.prefs, this.supportDir, {this.exePath});
+
+  /// The RetroArch executable found, or null for none installed.
+  final String? exePath;
+
+  /// What RetroArch's config folder resolves to (`~/.config/retroarch`, or the
+  /// Flatpak's `~/.var/app/.../config/retroarch`).
+  final String supportDir;
 
   @override
-  Future<String?> findEmulatorExecutable(String emulatorId, String executableName) async => null;
+  Future<String> getEmulatorAppSupportDirectory(String emulatorName, {String? platformSlug}) async => supportDir;
+
+  @override
+  Future<String?> findEmulatorExecutable(String emulatorId, String executableName) async => exePath;
 }
 
 void main() {
@@ -104,15 +114,19 @@ void main() {
   group('states folder follows retroarch.cfg', () {
     late io.Directory home;
 
-    Future<String> stateDirFor(String cfg) async {
+    Future<String> stateDirFor(String? cfg, {bool flatpak = false}) async {
       home = await io.Directory.systemTemp.createTemp('ra_state_cfg');
       addTearDown(() => home.delete(recursive: true));
-      final configDir = p.join(home.path, '.config', 'retroarch');
+      final configDir = flatpak
+          ? p.join(home.path, '.var', 'app', 'org.libretro.RetroArch', 'config', 'retroarch')
+          : p.join(home.path, '.config', 'retroarch');
       await io.Directory(configDir).create(recursive: true);
-      await io.File(p.join(configDir, 'retroarch.cfg')).writeAsString(cfg.replaceAll('{home}', home.path));
+      if (cfg != null) {
+        await io.File(p.join(configDir, 'retroarch.cfg')).writeAsString(cfg.replaceAll('{home}', home.path));
+      }
       SharedPreferences.setMockInitialValues({});
       final prefs = SharedPreferencesAppPreferences(await SharedPreferences.getInstance());
-      final configured = RetroArchSaveStrategy(_NoEmulatorsDirectoryService(prefs),
+      final configured = RetroArchSaveStrategy(_NoEmulatorsDirectoryService(prefs, configDir),
           prefs: prefs, platform: PlatformInfo('linux', environment: {'HOME': home.path}));
       return configured.stateDirectory(game, p.join(home.path, 'roms', 'gba', 'Pokemon Emerald.gba'));
     }
@@ -132,6 +146,35 @@ void main() {
       final dir = await stateDirFor(
           'savestate_directory = "{home}/my_states"\nsort_savestates_by_content_enable = "true"\n');
       expect(dir, p.join(home.path, 'my_states', 'gba', 'mGBA'));
+    });
+
+    test('with no retroarch.cfg the states folder is inside RetroArch\'s config folder', () async {
+      final dir = await stateDirFor(null);
+      expect(dir, p.join(home.path, '.config', 'retroarch', 'states', 'mGBA'));
+    });
+
+    test('the Flatpak\'s retroarch.cfg is read from its own config folder', () async {
+      final dir = await stateDirFor('savestate_directory = "~/.var/app/org.libretro.RetroArch/config/retroarch/states"\n'
+          'sort_savestates_enable = "true"\n', flatpak: true);
+      expect(dir, p.join(home.path, '.var', 'app', 'org.libretro.RetroArch', 'config', 'retroarch', 'states', 'mGBA'));
+    });
+
+    test('a portable AppImage keeps its states in <AppImage>.home/.config/retroarch', () async {
+      home = await io.Directory.systemTemp.createTemp('ra_appimage');
+      addTearDown(() => home.delete(recursive: true));
+      final exe = p.join(home.path, 'Emulators', 'retroarch', 'RetroArch-Linux-x86_64.AppImage');
+      final portable = p.join('$exe.home', '.config', 'retroarch');
+      await io.Directory(portable).create(recursive: true);
+      await io.File(exe).create();
+      SharedPreferences.setMockInitialValues({});
+      final prefs = SharedPreferencesAppPreferences(await SharedPreferences.getInstance());
+      final appImage = RetroArchSaveStrategy(
+          _NoEmulatorsDirectoryService(prefs, p.join(home.path, '.config', 'retroarch'), exePath: exe),
+          prefs: prefs,
+          platform: PlatformInfo('linux', environment: {'HOME': home.path}));
+
+      expect(await appImage.stateDirectory(game, p.join(home.path, 'roms', 'gba', 'Pokemon Emerald.gba')),
+          p.join(portable, 'states', 'mGBA'));
     });
 
     test('savestates_in_content_dir puts states next to the ROM', () async {

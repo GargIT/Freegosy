@@ -23,10 +23,9 @@ class RetroAchievementsEmulatorLogin {
   final String username;
   final String token;
 
-  /// Null until the user has explicitly set the Settings toggle: the
-  /// `cheevos_hardcore_mode_enable` line is then omitted from the
-  /// appendconfig, so RetroArch's own existing setting wins instead of
-  /// being silently forced off.
+  /// Null until the user has set the Settings toggle, which counts as off:
+  /// RetroArch's own default is hardcore on (no save states, rewind or
+  /// cheats), so the appendconfig always says which it is.
   final bool? hardcore;
 
   const RetroAchievementsEmulatorLogin({required this.username, required this.token, this.hardcore});
@@ -79,9 +78,9 @@ class RetroAchievementsEmulatorLogin {
       // Empty so RetroArch signs in with the token rather than a stale password.
       'cheevos_password = ""',
       'cheevos_token = ${quote(token)}',
-      // Omitted when unset so an existing hardcore setting in the user's own
-      // retroarch.cfg isn't silently overridden until they opt in here.
-      if (hardcore != null) 'cheevos_hardcore_mode_enable = "$hardcore"',
+      // Off unless the user turned it on here: left unset, RetroArch (or an
+      // old retroarch.cfg) would run in hardcore and block save states.
+      'cheevos_hardcore_mode_enable = "${hardcore ?? false}"',
       '',
     ].join('\n');
   }
