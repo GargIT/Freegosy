@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:freegosy/core/retroachievements/retroachievements_emulator_login.dart';
 import 'package:freegosy/core/platform/platform_info.dart';
 import 'package:freegosy/core/romm/romm_models.dart';
 import 'package:freegosy/core/storage/directory_service.dart';
@@ -107,16 +108,32 @@ abstract class EmulatorStrategy {
     return process;
   }
 
-  /// Whether this strategy signs the emulator in to RetroAchievements at
-  /// launch using the login saved in Settings (see
-  /// `RetroAchievementsEmulatorLogin`). Only RetroArch does so far.
+  /// Whether this strategy signs the emulator in to RetroAchievements using
+  /// the login saved in Settings (see `RetroAchievementsEmulatorLogin`).
+  ///
+  /// How it signs in is the emulator's own: RetroArch takes an `--appendconfig`
+  /// file on its command line; PCSX2 has no such option, so
+  /// [applyRetroAchievementsLogin] writes the login into its config files
+  /// before launch. Either way it must never fail a launch if it can't.
   ///
   /// Planned, each storing the same RA token in its own config:
-  /// DuckStation (settings.ini `[Cheevos]`), PCSX2 (PCSX2.ini `[Achievements]`),
-  /// PPSSPP (`[Achievements]` + token file), Dolphin (RetroAchievements.ini).
-  /// An implementation overrides this to true and applies the login from
-  /// its launch path, never failing the launch if it can't.
+  /// DuckStation (settings.ini `[Cheevos]`; its token is encrypted with a
+  /// machine-specific key), PPSSPP (`[Achievements]` + token secret) and
+  /// Dolphin (RetroAchievements.ini).
   bool get supportsRetroAchievementsLogin => false;
+
+  /// Writes [login] into the emulator's own config so it is signed in to
+  /// RetroAchievements at its next start. Called before launch by emulators
+  /// that sign in through their config files (see
+  /// [supportsRetroAchievementsLogin]). Must never throw, and does nothing
+  /// when the emulator has not been run yet (no config to edit).
+  Future<void> applyRetroAchievementsLogin(RetroAchievementsEmulatorLogin login) async {}
+
+  /// Removes what [applyRetroAchievementsLogin] wrote (the token above all),
+  /// when the user disconnects their account in Settings. Only a login for
+  /// [username] is removed: one the user set up in the emulator themselves
+  /// stays. Must never throw.
+  Future<void> clearRetroAchievementsLogin(String username) async {}
 
   Future<void> preLaunch(Game game, String romPath) async {}
   Future<void> postLaunch(Game game, String romPath) async {}

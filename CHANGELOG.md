@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Added
+- **PCSX2 signs in to RetroAchievements**: connect your account once in Settings and Freegosy now signs PCSX2 in too, not just RetroArch. PCSX2 has no command-line option for this, so before launch Freegosy writes the account into PCSX2's own files: `Enabled`, `Username`, `LoginTimestamp` and `ChallengeMode` (hardcore, off unless you turn it on in Settings) in `PCSX2.ini`'s `[Achievements]`, and the token in `secrets.ini` beside it. Only those lines change, `PCSX2.ini` is copied to `PCSX2.ini.freegosy.bak` first, and nothing is written until PCSX2 has run once. Disconnecting in Settings takes the login back out, but only if it is the account Freegosy signed in, never one you set up in PCSX2 yourself.
+
 ### Fixed
 - **Freegosy could randomly crash at startup on Linux with no error**: the controller plugin aborted the whole app ("Error initializing inotify") when other apps had used up the per-user inotify instance limit (128 by default), so whether it launched depended on what else was running. It now falls back to checking for controllers every couple of seconds, and nothing on its background threads can terminate the app. Ships as a patched copy of `gamepads_linux` in `thirdparty/`.
 

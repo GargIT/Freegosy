@@ -333,6 +333,9 @@ class StrategyRegistry {
     return _strategies.where((s) => s.supportedSlugs.contains(platformSlug)).toList();
   }
 
+  /// Every strategy available on this platform.
+  List<EmulatorStrategy> get allStrategies => List.unmodifiable(_strategies);
+
   EmulatorStrategy? getStrategyById(String id) => _strategies.cast<EmulatorStrategy?>().firstWhere((s) => s?.emulatorId == id, orElse: () => null);
 
   void setNdsCore(String core) {
