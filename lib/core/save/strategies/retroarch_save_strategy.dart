@@ -10,7 +10,10 @@ import '../../storage/app_preferences.dart';
 import '../../storage/directory_service.dart';
 import '../ps1_memory_card.dart';
 import '../ps2_memory_card.dart';
+import '../save_state_info.dart';
 import '../save_strategy.dart';
+import '../state_sync_capable.dart';
+import '../state_sync_service.dart';
 import 'ps2_save_folders.dart';
 import 'pcsx2_save_strategy.dart';
 import 'package:path/path.dart' as p; // Import path package
@@ -22,9 +25,15 @@ import '../../emulator/retroarch_core_names.dart';
 ///
 /// Save files live next to RetroArch.exe in saves/{coreName}/.
 /// Core name mapping is derived from the platform slug.
-class RetroArchSaveStrategy extends SaveStrategy {
+///
+/// Save states (`<content>.state`, `.stateN`, `.state.auto`) sync through
+/// [StateSyncCapable] / StateSyncService when the user turns "Sync save
+/// states" on for RetroArch. With it off they still travel inside the game
+/// save, as before.
+class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
   final DirectoryService _directoryService;
   final PlatformInfo _platform;
+  final AppPreferences? _prefs;
   String _ndsCore = 'melonds'; // Default NDS core
   String? _cachedSaveRoot; // Cached from retroarch.cfg
 
@@ -46,6 +55,13 @@ class RetroArchSaveStrategy extends SaveStrategy {
   String? _cachedSystemDir;
   String? _cachedCoreOptionsDir;
 
+  /// `savestate_directory` (null: RetroArch's default `states` folder) and the
+  /// state sort flags from retroarch.cfg.
+  String? _cachedStateDir;
+  bool? _cachedSortSavestates;
+  bool? _cachedSortSavestatesByContent;
+  bool? _cachedSavestatesInContentDir;
+
   final SerialExtractionService? _serials;
 
   // Test-only override to skip reading the real retroarch.cfg.
@@ -59,6 +75,7 @@ class RetroArchSaveStrategy extends SaveStrategy {
   RetroArchSaveStrategy(this._directoryService,
       {PlatformInfo? platform, AppPreferences? prefs, SerialExtractionService? serialExtractionService})
       : _platform = platform ?? PlatformInfo.current,
+        _prefs = prefs,
         _serials = serialExtractionService ??
             (prefs == null ? null : SerialExtractionService(_directoryService, prefs, platform: platform));
 
@@ -218,7 +235,9 @@ class RetroArchSaveStrategy extends SaveStrategy {
     final savefileDirRe = RegExp(r'^\s*savefile_directory\s*=\s*"([^"]*)"');
     final systemDirRe = RegExp(r'^\s*system_directory\s*=\s*"([^"]*)"');
     final coreOptionsDirRe = RegExp(r'^\s*rgui_config_directory\s*=\s*"([^"]*)"');
-    final boolRe = RegExp(r'^\s*(sort_savefiles_enable|sort_savefiles_by_content_enable|savefiles_in_content_dir)\s*=\s*"?(true|false)"?');
+    final stateDirRe = RegExp(r'^\s*savestate_directory\s*=\s*"([^"]*)"');
+    final boolRe = RegExp(
+        r'^\s*(sort_savefiles_enable|sort_savefiles_by_content_enable|savefiles_in_content_dir|sort_savestates_enable|sort_savestates_by_content_enable|savestates_in_content_dir)\s*=\s*"?(true|false)"?');
     final libretroPathRe = RegExp(r'^\s*libretro_path\s*=\s*"([^"]*)"');
 
     for (final cfgPath in candidates) {
@@ -235,6 +254,8 @@ class RetroArchSaveStrategy extends SaveStrategy {
         for (final line in lines) {
           final systemMatch = systemDirRe.firstMatch(line);
           if (systemMatch != null) _cachedSystemDir = _configPath(systemMatch.group(1)!, cfgDir);
+          final stateDirMatch = stateDirRe.firstMatch(line);
+          if (stateDirMatch != null) _cachedStateDir = _configPath(stateDirMatch.group(1)!, cfgDir);
           final optionsMatch = coreOptionsDirRe.firstMatch(line);
           if (optionsMatch != null) _cachedCoreOptionsDir = _configPath(optionsMatch.group(1)!, cfgDir);
 
@@ -269,6 +290,15 @@ class RetroArchSaveStrategy extends SaveStrategy {
               case 'savefiles_in_content_dir':
                 _cachedSavefilesInContentDir = value;
                 debugPrint('[SaveSync] [retroarch] _readConfigSaveRoot savefiles_in_content_dir=$value');
+                break;
+              case 'sort_savestates_enable':
+                _cachedSortSavestates = value;
+                break;
+              case 'sort_savestates_by_content_enable':
+                _cachedSortSavestatesByContent = value;
+                break;
+              case 'savestates_in_content_dir':
+                _cachedSavestatesInContentDir = value;
                 break;
             }
           }
@@ -746,6 +776,136 @@ class RetroArchSaveStrategy extends SaveStrategy {
     return files;
   }
 
+  /// Whether the user turned on "Sync save states" for RetroArch. States then
+  /// sync through StateSyncService and stay out of the game-save upload.
+  bool get _stateSyncOn => _prefs?.getBool(StateSyncService.enabledKey('retroarch')) ?? false;
+
+  /// RetroArch's default states folder for [slug], without the per-core
+  /// subfolder: `<RetroArch>/states` (EmuDeck and RetroDECK have their own
+  /// roots).
+  Future<String> _defaultStatesRoot(String slug) async {
+    if (_platform.isLinux) {
+      final baseDir = await _directoryService.getEmulatorAppSupportDirectory('retroarch', platformSlug: slug);
+      switch (_directoryService.linuxSyncPreset) {
+        case 'emudeck':
+          // baseDir is .../Emulation/saves/retroarch
+          return p.join(p.dirname(p.dirname(baseDir)), 'states', 'retroarch');
+        case 'retrodeck':
+          return p.join(baseDir, 'states');
+        default:
+          return p.join(p.dirname(baseDir), 'states');
+      }
+    }
+    final saveRoot = await _resolveSaveRoot();
+    return p.join(io.Directory(saveRoot).parent.path, 'states');
+  }
+
+  /// Where RetroArch keeps [coreInfo]'s save states for [romPath], following
+  /// retroarch.cfg the way RetroArch does: next to the ROM with
+  /// `savestates_in_content_dir`, else `savestate_directory` (default
+  /// `<RetroArch>/states`), then the ROM's folder name with
+  /// `sort_savestates_by_content_enable`, then the core's folder with
+  /// `sort_savestates_enable` (on by default). Needs retroarch.cfg to have
+  /// been read.
+  Future<String> _statesDir(String slug, _CoreInfo coreInfo, String romPath) async {
+    if (_cachedSavestatesInContentDir ?? false) return io.File(romPath).parent.path;
+    var dir = _cachedStateDir ?? await _defaultStatesRoot(slug);
+    if (_cachedSortSavestatesByContent ?? false) {
+      dir = p.join(dir, p.basename(io.File(romPath).parent.path));
+    }
+    if (_cachedSortSavestates ?? true) dir = p.join(dir, coreInfo.statesFolder);
+    return dir;
+  }
+
+  // ─── Save states (StateSyncCapable) ───────────────────────────────────
+  //
+  // RetroArch names a state after the content file, never the core:
+  // `<content>.state` (slot 0), `<content>.stateN` (slots 1+) and
+  // `<content>.state.auto` (the auto slot), with an optional `<state>.png`
+  // thumbnail beside it. By default they live in a per-core folder (see
+  // [_statesDir]), so only the states of the core the game runs with are
+  // synced.
+
+  static final _stateSuffixPattern = RegExp(r'\.state(\d{1,3}|\.auto)?$');
+
+  @override
+  Future<String> stateDirectory(Game game, String romPath) async {
+    final slug = game.platformSlug?.toLowerCase() ?? '';
+    final coreInfo = _getCoreInfo(slug);
+    if (coreInfo == null) {
+      throw Exception('No RetroArch core is known for platform "$slug", so its save states folder is unknown.');
+    }
+    await _readConfigSaveRoot();
+    return _statesDir(slug, coreInfo, romPath);
+  }
+
+  @override
+  Future<bool Function(String fileName)?> stateFileMatcher(Game game, String romPath) async {
+    final stems = {getRomStem(game), p.basenameWithoutExtension(romPath)}..removeWhere((s) => s.isEmpty);
+    if (stems.isEmpty) return null;
+    return (String fileName) {
+      if (fileName != p.basename(fileName) || fileName.contains('\\')) return false;
+      final match = _stateSuffixPattern.firstMatch(fileName);
+      return match != null && stems.contains(fileName.substring(0, match.start));
+    };
+  }
+
+  /// A state is `RASTATE` + a version byte followed by blocks, or the same
+  /// wrapped in RetroArch's compressed `#RZIPv` container. Older frontends
+  /// wrote bare core data, which can't be told from garbage, so it isn't
+  /// accepted.
+  @override
+  bool looksLikeValidState(Uint8List bytes) => _stateFormat(bytes) != null;
+
+  static String? _stateFormat(List<int> head) {
+    bool startsWith(String magic) {
+      if (head.length < magic.length) return false;
+      for (var i = 0; i < magic.length; i++) {
+        if (head[i] != magic.codeUnitAt(i)) return false;
+      }
+      return true;
+    }
+
+    if (startsWith('RASTATE') && head.length >= 8) return 'RASTATE v${head[7]}';
+    if (startsWith('#RZIPv') && head.length >= 8 && head[7] == 0x23) return 'RetroArch compressed state';
+    return null;
+  }
+
+  @override
+  StateSlot slotOf(String fileName) {
+    final match = _stateSuffixPattern.firstMatch(fileName);
+    if (match == null) return UnknownStateSlot(fileName);
+    final slot = match.group(1);
+    if (slot == '.auto') return const AutoStateSlot();
+    return NumberedStateSlot(slot == null ? 0 : int.parse(slot));
+  }
+
+  @override
+  Future<StateFileInfo> describeState(io.File file) async {
+    final base = await super.describeState(file);
+    io.RandomAccessFile? raf;
+    try {
+      raf = await file.open();
+      return StateFileInfo(savedAt: base.savedAt, formatId: _stateFormat(await raf.read(8)));
+    } catch (_) {
+      return base;
+    } finally {
+      await raf?.close();
+    }
+  }
+
+  /// RetroArch writes the thumbnail beside the state as `<state>.png` when
+  /// "Save State Thumbnails" is on.
+  @override
+  Future<Uint8List?> stateScreenshot(io.File file) async {
+    try {
+      final png = io.File('${file.path}.png');
+      return await png.exists() ? await png.readAsBytes() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Future<Map<io.File, io.File?>> getSaveFilesWithScreenshots(Game game, String romPath, {DateTime? sessionStart, String syncMode = 'both'}) async {
     final slug = game.platformSlug?.toLowerCase() ?? '';
@@ -753,31 +913,9 @@ class RetroArchSaveStrategy extends SaveStrategy {
 
     if (coreInfo == null) return {};
 
-    String? rootSaveDir;
-    String? statesRoot;
-
-    if (_platform.isLinux) {
-      rootSaveDir = await getSaveDir(game, romPath);
-      final baseDir = await _directoryService.getEmulatorAppSupportDirectory('retroarch', platformSlug: slug);
-
-      if (_directoryService.linuxSyncPreset == 'emudeck') {
-        // EmuDeck: saves are in Emulation/saves/retroarch, states in Emulation/states/retroarch
-        // baseDir is .../Emulation/saves/retroarch
-        final emulationRoot = p.dirname(p.dirname(baseDir));
-        statesRoot = p.join(emulationRoot, 'states', 'retroarch', coreInfo.statesFolder);
-      } else if (_directoryService.linuxSyncPreset == 'retrodeck') {
-        // RetroDECK: baseDir is .../retroarch/
-        statesRoot = p.join(baseDir, 'states', coreInfo.statesFolder);
-      } else {
-        statesRoot = p.join(p.dirname(baseDir), 'states', coreInfo.statesFolder);
-      }
-    } else {
-      rootSaveDir = await getSaveDir(game, romPath);
-
-      // States use the same root but under a states/ subfolder
-      final saveRoot = await _resolveSaveRoot();
-      statesRoot = p.join(io.Directory(saveRoot).parent.path, 'states', coreInfo.statesFolder);
-    }
+    final rootSaveDir = await getSaveDir(game, romPath);
+    await _readConfigSaveRoot();
+    final statesRoot = await _statesDir(slug, coreInfo, romPath);
 
     debugPrint('[SaveSync] [retroarch] getSaveFilesWithScreenshots slug=$slug rootSaveDir=$rootSaveDir statesRoot=$statesRoot');
 
@@ -857,10 +995,11 @@ class RetroArchSaveStrategy extends SaveStrategy {
     }
 
     // Handle States
-    if ((syncMode == 'states' || syncMode == 'both')) {
+    if ((syncMode == 'states' || syncMode == 'both') && !_stateSyncOn) {
       final romStem = io.File(romPath).uri.pathSegments.last.replaceAll(RegExp(r'\.[^.]+$'), '');
       for (final checkStem in [stem, romStem]) {
         filesToCheck.add(io.File('$statesRoot/$checkStem.state.auto'));
+        filesToCheck.add(io.File('$statesRoot/$checkStem.state')); // slot 0 has no number
         for (int i = 0; i <= 9; i++) {
           filesToCheck.add(io.File('$statesRoot/$checkStem.state$i'));
         }
@@ -919,6 +1058,7 @@ class RetroArchSaveStrategy extends SaveStrategy {
       final coreInfo = _getCoreInfo(slug);
 
       if (coreInfo == null) return false;
+      await _readConfigSaveRoot();
 
       // LRPS2: the saves go onto its memory card; states below as usual.
       final lrps2 = _isLrps2(slug);
@@ -937,20 +1077,8 @@ class RetroArchSaveStrategy extends SaveStrategy {
           if (lrps2 && !isFileState) continue;
           String? fileTargetDir;
           if (isFileState) {
-            if (_platform.isLinux) {
-              final baseDir = await _directoryService.getEmulatorAppSupportDirectory('retroarch', platformSlug: slug);
-              if (_directoryService.linuxSyncPreset == 'emudeck') {
-                final emulationRoot = p.dirname(p.dirname(baseDir));
-                fileTargetDir = p.join(emulationRoot, 'states', 'retroarch', coreInfo.statesFolder);
-              } else if (_directoryService.linuxSyncPreset == 'retrodeck') {
-                fileTargetDir = p.join(baseDir, 'states', coreInfo.statesFolder);
-              } else {
-                fileTargetDir = p.join(p.dirname(baseDir), 'states', coreInfo.statesFolder);
-              }
-            } else {
-              final saveRoot = await _resolveSaveRoot();
-              fileTargetDir = p.join(io.Directory(saveRoot).parent.path, 'states', coreInfo.statesFolder);
-            }
+            if (_stateSyncOn) continue; // states sync through StateSyncService
+            fileTargetDir = await _statesDir(slug, coreInfo, destPath);
           } else {
             fileTargetDir = await getSaveDir(game, destPath);
           }
@@ -976,20 +1104,11 @@ class RetroArchSaveStrategy extends SaveStrategy {
       final isState = filename.contains('.state');
 
       if (isState) {
-        if (_platform.isLinux) {
-          final baseDir = await _directoryService.getEmulatorAppSupportDirectory('retroarch', platformSlug: slug);
-          if (_directoryService.linuxSyncPreset == 'emudeck') {
-            final emulationRoot = p.dirname(p.dirname(baseDir));
-            targetDir = p.join(emulationRoot, 'states', 'retroarch', coreInfo.statesFolder);
-          } else if (_directoryService.linuxSyncPreset == 'retrodeck') {
-            targetDir = p.join(baseDir, 'states', coreInfo.statesFolder);
-          } else {
-            targetDir = p.join(p.dirname(baseDir), 'states', coreInfo.statesFolder);
-          }
-        } else {
-          final saveRoot = await _resolveSaveRoot();
-          targetDir = p.join(io.Directory(saveRoot).parent.path, 'states', coreInfo.statesFolder);
+        if (_stateSyncOn) {
+          debugPrint('[SaveSync] [retroarch] ignoring state in save restore (state sync is on): $filename');
+          return true;
         }
+        targetDir = await _statesDir(slug, coreInfo, destPath);
       } else {
         // For saves: use getSaveDir() which scans for the actual folder
         targetDir = await getSaveDir(game, destPath);

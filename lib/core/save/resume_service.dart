@@ -175,7 +175,7 @@ class ResumeService {
     final merged = Map<String, ResumeEntry>.of(local);
     for (final state in remote) {
       final owner = _ownerOf(state, sources, syncing);
-      if (owner == null) continue;
+      if (owner == null || !owner.emulator.canLoadState(state.fileName)) continue;
       final key = _key(owner.emulator.emulatorId, state.fileName);
       final remoteTime =
           DateTime.tryParse(state.updatedAt ?? '')?.toLocal() ?? DateTime.fromMillisecondsSinceEpoch(0);
@@ -339,7 +339,7 @@ class ResumeService {
       await for (final entity in source.dir.list(followLinks: false)) {
         if (entity is! io.File) continue;
         final name = p.basename(entity.path);
-        if (!source.matches(name)) continue;
+        if (!source.matches(name) || !source.emulator.canLoadState(name)) continue;
         if (await entity.length() < StateSyncService.minValidStateBytes) continue;
         final info = await source.strategy.describeState(entity);
         result[_key(source.emulator.emulatorId, name)] = ResumeEntry(

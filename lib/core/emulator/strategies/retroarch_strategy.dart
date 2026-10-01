@@ -72,6 +72,28 @@ class RetroArchStrategy extends EmulatorStrategy {
   bool get supportsSaveSync => true;
 
   @override
+  bool get supportsStateSync => true;
+
+  @override
+  bool get supportsStateLoadOnLaunch => true;
+
+  static final _stateSlotPattern = RegExp(r'\.state(\d{1,3})?$');
+
+  /// RetroArch: `-e <slot>` (`--entryslot`) loads that slot at boot. Slot 0 is
+  /// the file with no number (`Game.state`).
+  @override
+  List<String> stateLoadArgs(String statePath) {
+    final match = _stateSlotPattern.firstMatch(p.basename(statePath));
+    if (match == null) return const [];
+    return ['-e', '${int.tryParse(match.group(1) ?? '') ?? 0}'];
+  }
+
+  /// `--entryslot` only takes slot numbers, so the auto slot
+  /// (`Game.state.auto`) can't be resumed from.
+  @override
+  bool canLoadState(String fileName) => _stateSlotPattern.hasMatch(fileName);
+
+  @override
   bool get supportsRetroAchievementsLogin => true;
 
   // ── Core override system ─────────────────────────────────────
@@ -270,7 +292,10 @@ class RetroArchStrategy extends EmulatorStrategy {
   }
 
   @override
-  Future<void> launch(Game game, String romPath) async {
+  Future<void> launch(Game game, String romPath) => launchWithExtraArgs(game, romPath);
+
+  @override
+  Future<void> launchWithExtraArgs(Game game, String romPath, {List<String> extraArgs = const []}) async {
     final exePath = await _directoryService.findEmulatorExecutable(
         emulatorId, getExecutableForPlatform());
     if (exePath == null) {
@@ -285,7 +310,8 @@ class RetroArchStrategy extends EmulatorStrategy {
     }
 
     if (coreName == null) {
-      await _directoryService.launchGame(game, normalizedRomPath, emulatorId, exePath, args: await retroAchievementsLaunchArgs());
+      await _directoryService.launchGame(game, normalizedRomPath, emulatorId, exePath,
+          args: [...await retroAchievementsLaunchArgs(), ...extraArgs]);
       return;
     }
 
@@ -309,11 +335,18 @@ class RetroArchStrategy extends EmulatorStrategy {
       );
     }
 
-    await _directoryService.launchGame(game, normalizedRomPath, emulatorId, exePath, args: [...await retroAchievementsLaunchArgs(), '-L', corePath]);
+    await _directoryService.launchGame(game, normalizedRomPath, emulatorId, exePath,
+        args: [...await retroAchievementsLaunchArgs(), '-L', corePath, ...extraArgs]);
   }
 
   @override
-  Future<Process?> launchWithHandle(Game game, String romPath, {String? coreName}) async {
+  Future<Process?> launchWithHandle(Game game, String romPath, {String? coreName}) =>
+      launchWithHandleAndExtraArgs(game, romPath, coreName: coreName);
+
+  /// [coreName] is the core picked at launch (see [launchWithHandle]).
+  @override
+  Future<Process?> launchWithHandleAndExtraArgs(Game game, String romPath,
+      {List<String> extraArgs = const [], String? coreName}) async {
     final exePath = await _directoryService.findEmulatorExecutable(
         emulatorId, getExecutableForPlatform());
     if (exePath == null) {
@@ -328,7 +361,8 @@ class RetroArchStrategy extends EmulatorStrategy {
     }
 
     if (resolvedCoreName == null) {
-      return await _directoryService.launchGameWithHandle(game, normalizedRomPath, emulatorId, exePath, args: await retroAchievementsLaunchArgs());
+      return await _directoryService.launchGameWithHandle(game, normalizedRomPath, emulatorId, exePath,
+          args: [...await retroAchievementsLaunchArgs(), ...extraArgs]);
     }
 
     final corePath = await _resolveCorePath(exePath, resolvedCoreName);
@@ -351,7 +385,8 @@ class RetroArchStrategy extends EmulatorStrategy {
       );
     }
 
-    return await _directoryService.launchGameWithHandle(game, normalizedRomPath, emulatorId, exePath, args: [...await retroAchievementsLaunchArgs(), '-L', corePath]);
+    return await _directoryService.launchGameWithHandle(game, normalizedRomPath, emulatorId, exePath,
+        args: [...await retroAchievementsLaunchArgs(), '-L', corePath, ...extraArgs]);
   }
 
   // ── Core download ────────────────────────────────────────────

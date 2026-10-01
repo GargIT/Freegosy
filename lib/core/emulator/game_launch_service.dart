@@ -210,7 +210,9 @@ class GameLaunchService {
         : const <String>[];
     try {
       if (extraArgs.isNotEmpty) {
-        process = await strategy.launchWithHandleAndExtraArgs(game, romPath, extraArgs: extraArgs);
+        process = strategy is RetroArchStrategy
+            ? await strategy.launchWithHandleAndExtraArgs(game, romPath, extraArgs: extraArgs, coreName: overrideCoreId)
+            : await strategy.launchWithHandleAndExtraArgs(game, romPath, extraArgs: extraArgs);
       } else if (strategy is RetroArchStrategy && overrideCoreId != null) {
         process = await strategy.launchWithHandle(game, romPath, coreName: overrideCoreId);
       } else {
