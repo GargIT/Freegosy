@@ -32,6 +32,8 @@ class ExtractionService {
         await _handleZip(archivePath, destDir);
       } else if (pathLower.endsWith('.7z')) {
         await _handleSevenZip(archivePath, destDir);
+      } else if (pathLower.endsWith('.rar')) {
+        await _handleRar(archivePath, destDir);
       } else if (pathLower.endsWith('.exe') && !_platform.isLinux) {
         await _handleExe(archivePath, destDir);
       } else if (pathLower.endsWith('.appimage') || pathLower.endsWith('.flatpak')) {
@@ -192,6 +194,56 @@ class ExtractionService {
     if (_platform.isMacOS) {
       await _postExtractSanitize(destDir);
     }
+  }
+
+  /// Programs on Windows that can unpack a RAR, tried in order: an installed
+  /// 7-Zip or WinRAR's `UnRAR.exe`. (The `7zr.exe` Freegosy bundles reads only
+  /// 7z, so it can't do RAR.) Only ones that exist are returned, each with
+  /// the arguments for unpacking [archivePath] into [destDir].
+  Future<List<({String exe, List<String> args})>> _windowsRarTools(String archivePath, String destDir) async {
+    final roots = <String>{
+      for (final key in ['ProgramFiles', 'ProgramW6432', 'ProgramFiles(x86)'])
+        if ((_platform.environment[key] ?? '').isNotEmpty) _platform.environment[key]!,
+    };
+    final tools = <({String exe, List<String> args})>[];
+    for (final root in roots) {
+      tools.add((exe: p.join(root, '7-Zip', '7z.exe'), args: ['x', archivePath, '-o$destDir', '-y']));
+    }
+    for (final root in roots) {
+      // UnRAR takes the destination as a trailing folder, with a separator.
+      tools.add((exe: p.join(root, 'WinRAR', 'UnRAR.exe'), args: ['x', '-y', '-o+', archivePath, '$destDir${p.separator}']));
+    }
+    return [for (final tool in tools) if (await File(tool.exe).exists()) tool];
+  }
+
+  /// RAR. Linux and macOS use the bundled 7-Zip (`7zz` reads RAR). Windows has
+  /// only `7zr`, which doesn't, so it tries an installed 7-Zip or WinRAR, then
+  /// the `tar` built into Windows 10/11 (libarchive reads most RAR files, RAR5
+  /// from newer builds), and says what to install if none can.
+  Future<void> _handleRar(String archivePath, String destDir) async {
+    if (!_platform.isWindows) {
+      await _handleSevenZip(archivePath, destDir);
+      return;
+    }
+    final failures = <String>[];
+    for (final tool in await _windowsRarTools(archivePath, destDir)) {
+      try {
+        final result = await Process.run(tool.exe, tool.args, runInShell: false);
+        if (result.exitCode == 0) return;
+        failures.add('${p.basename(tool.exe)}: ${result.stderr}'.trim());
+      } catch (e) {
+        failures.add('${p.basename(tool.exe)}: $e');
+      }
+    }
+    try {
+      final result = await Process.run('tar', ['-xf', archivePath, '-C', destDir], runInShell: true);
+      if (result.exitCode == 0) return;
+      failures.add('tar: ${result.stderr}'.trim());
+    } catch (e) {
+      failures.add('tar: $e');
+    }
+    throw Exception("Couldn't extract the RAR archive. Install 7-Zip (7-zip.org) or WinRAR and download the game again, "
+        'or extract the file by hand. (${failures.join('; ')})');
   }
 
   Future<void> _handleExe(String archivePath, String destDir) async {

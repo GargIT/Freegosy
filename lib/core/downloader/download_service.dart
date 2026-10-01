@@ -62,6 +62,14 @@ class DownloadProgress {
 }
 
 class DownloadService {
+  /// Whether [path] is an archive Freegosy unpacks after downloading (a Windows
+  /// game, or a ROM for a platform whose emulator can't read archives).
+  @visibleForTesting
+  static bool isExtractableArchive(String path) {
+    final lower = path.toLowerCase();
+    return lower.endsWith('.zip') || lower.endsWith('.7z') || lower.endsWith('.rar');
+  }
+
   final Dio dio;
   final DirectoryService directoryService;
   final ExtractionService extractionService;
@@ -291,8 +299,7 @@ class DownloadService {
         }
 
         final isWindowsGame = ['windows', 'pc', 'win'].contains(game.platformSlug?.toLowerCase() ?? '');
-        final isArchive = currentPath.toLowerCase().endsWith('.zip') ||
-            currentPath.toLowerCase().endsWith('.7z');
+        final isArchive = isExtractableArchive(currentPath);
         
         final platformSupportsArchive = directoryService.platformSupportsArchive(game.platformSlug);
 

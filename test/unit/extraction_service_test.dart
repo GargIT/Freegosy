@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:archive/archive_io.dart';
@@ -131,6 +132,108 @@ void main() {
       });
     });
 
+    group('RAR extraction', () {
+      /// A real 100-byte RAR holding `Game/readme.txt` ("Hello from a RAR archive!\n").
+      final rarBytes = base64.decode(
+          'UmFyIRoHAM+QcwAADQAAAAAAAABnn3QAgC8AGgAAABoAAAADyDBlXgAAIVoUMA8ApIEAAEdhbWUvcmVhZG1lLnR4dEhlbGxvIGZyb20gYSBSQVIgYXJjaGl2ZSEKxD17AEAHAA==');
+
+      Future<String> writeRar() async {
+        final path = p.join(tempDir.path, 'game.rar');
+        await File(path).writeAsBytes(rarBytes);
+        return path;
+      }
+
+      /// A stand-in tool: a script that records its arguments in [log] and exits with [exitCode].
+      Future<void> fakeTool(String path, String log, {int exitCode = 0}) async {
+        await Directory(p.dirname(path)).create(recursive: true);
+        await File(path).writeAsString('#!/bin/sh\necho "\$@" >> "$log"\nexit $exitCode\n');
+        await Process.run('chmod', ['+x', path]);
+      }
+
+      final onPosix = !Platform.isWindows;
+      final bundled7zz = File('thirdparty/7zz-linux');
+
+      test('.rar extracts with the bundled 7-Zip on Linux', () async {
+        final sevenZip = p.join(tempDir.path, '7zz-linux');
+        await bundled7zz.copy(sevenZip);
+        await Process.run('chmod', ['+x', sevenZip]);
+        final archive = await writeRar();
+        final destDir = Directory(p.join(tempDir.path, 'rar_out'))..createSync();
+        final service = ExtractionService(_SevenZipDirectoryService(sevenZip), platform: PlatformInfo('linux'));
+
+        await service.extract(archive, destDir.path);
+
+        expect(File(p.join(destDir.path, 'Game', 'readme.txt')).readAsStringSync(), 'Hello from a RAR archive!\n');
+      }, skip: !(Platform.isLinux && bundled7zz.existsSync()) ? 'needs Linux and thirdparty/7zz-linux' : false);
+
+      test('.rar is routed to the bundled 7-Zip on macOS too', () async {
+        final log = p.join(tempDir.path, 'args.txt');
+        final sevenZip = p.join(tempDir.path, '7zz');
+        await fakeTool(sevenZip, log);
+        final archive = await writeRar();
+        final service = ExtractionService(_SevenZipDirectoryService(sevenZip), platform: PlatformInfo('macos'));
+
+        await service.extract(archive, tempDir.path);
+
+        expect(File(log).readAsStringSync(), contains('x $archive -o${tempDir.path} -y'));
+      }, skip: onPosix ? false : 'uses a shell script as the 7-Zip stand-in');
+
+      group('on Windows (the bundled 7zr reads only 7z)', () {
+        late String programFiles;
+        late String log;
+
+        setUp(() {
+          programFiles = p.join(tempDir.path, 'Program Files');
+          log = p.join(tempDir.path, 'args.txt');
+        });
+
+        ExtractionService windows() =>
+            ExtractionService(_MinimalDirectoryService(), platform: PlatformInfo('windows', environment: {'ProgramFiles': programFiles}));
+
+        test('an installed 7-Zip is used', () async {
+          await fakeTool(p.join(programFiles, '7-Zip', '7z.exe'), log);
+          final archive = await writeRar();
+
+          await windows().extract(archive, tempDir.path);
+
+          expect(File(log).readAsStringSync(), contains('x $archive -o${tempDir.path} -y'));
+        }, skip: onPosix ? false : 'uses a shell script as the 7-Zip stand-in');
+
+        test('WinRAR\'s UnRAR is used when there is no 7-Zip', () async {
+          await fakeTool(p.join(programFiles, 'WinRAR', 'UnRAR.exe'), log);
+          final archive = await writeRar();
+
+          await windows().extract(archive, tempDir.path);
+
+          expect(File(log).readAsStringSync(), contains('x -y -o+ $archive ${tempDir.path}${p.separator}'));
+        }, skip: onPosix ? false : 'uses a shell script as the UnRAR stand-in');
+
+        test('UnRAR is tried when 7-Zip fails', () async {
+          await fakeTool(p.join(programFiles, '7-Zip', '7z.exe'), log, exitCode: 2);
+          await fakeTool(p.join(programFiles, 'WinRAR', 'UnRAR.exe'), log);
+          final archive = await writeRar();
+
+          await windows().extract(archive, tempDir.path);
+
+          final calls = File(log).readAsLinesSync();
+          expect(calls.length, 2);
+          expect(calls.first, startsWith('x $archive'));
+          expect(calls.last, startsWith('x -y -o+'));
+        }, skip: onPosix ? false : 'uses shell scripts as stand-ins');
+
+        test('with nothing able to read it, the error says what to install and the file is not touched', () async {
+          final archive = await writeRar();
+          final destDir = Directory(p.join(tempDir.path, 'none'))..createSync();
+
+          await expectLater(
+            windows().extract(archive, destDir.path),
+            throwsA(isA<Exception>().having((e) => e.toString(), 'message', contains('Install 7-Zip'))),
+          );
+          expect(File(archive).existsSync(), isTrue);
+        }, skip: onPosix ? false : 'depends on the machine\'s tar');
+      });
+    });
+
     group('magic byte detection', () {
       test('unknown extension with ZIP magic extracts on all platforms', () async {
         for (final os in ['macos', 'linux', 'windows']) {
@@ -169,4 +272,13 @@ void main() {
 class _MinimalDirectoryService extends Fake implements DirectoryService {
   @override
   Future<String?> resolveSevenZipPath() async => null;
+}
+
+/// A DirectoryService whose 7-Zip is the file at [path].
+class _SevenZipDirectoryService extends Fake implements DirectoryService {
+  _SevenZipDirectoryService(this.path);
+  final String path;
+
+  @override
+  Future<String?> resolveSevenZipPath() async => path;
 }
