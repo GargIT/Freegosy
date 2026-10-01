@@ -63,7 +63,7 @@ class StrategyRegistry {
       DuckstationStrategy(_directoryService, platform: _platform),
       FlycastStrategy(_directoryService),
       MelonDSStrategy(_directoryService, platform: _platform),
-      PPSSPPStrategy(_directoryService),
+      PPSSPPStrategy(_directoryService, platform: _platform),
       MGBAStrategy(_directoryService),
       AresStrategy(_directoryService, platform: _platform),
       MAMEStrategy(_directoryService),

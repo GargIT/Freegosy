@@ -147,10 +147,10 @@ class Pcsx2Strategy extends EmulatorStrategy {
         return;
       }
 
-      await _updateIni(io.File(p.join(dir, 'secrets.ini')), (secrets) => secrets.set(_raSection, 'Token', login.token),
-          private: true, create: true);
+      await updateIniFile(io.File(p.join(dir, 'secrets.ini')), (secrets) => secrets.set(_raSection, 'Token', login.token),
+          private: true, create: true, windows: platform.isWindows);
 
-      await _updateIni(iniFile, (config) {
+      await updateIniFile(iniFile, (config) {
         var changed = false;
         final newUser = config.get(_raSection, 'Username') != login.username;
         changed |= config.set(_raSection, 'Enabled', 'true');
@@ -179,8 +179,8 @@ class Pcsx2Strategy extends EmulatorStrategy {
       final current = IniFile(await iniFile.readAsString()).get(_raSection, 'Username');
       if (current == null || current.toLowerCase() != username.toLowerCase()) return;
 
-      await _updateIni(io.File(p.join(dir, 'secrets.ini')), (secrets) => secrets.remove(_raSection, 'Token'));
-      await _updateIni(iniFile, (config) {
+      await updateIniFile(io.File(p.join(dir, 'secrets.ini')), (secrets) => secrets.remove(_raSection, 'Token'));
+      await updateIniFile(iniFile, (config) {
         var changed = false;
         changed |= config.remove(_raSection, 'Username');
         changed |= config.remove(_raSection, 'LoginTimestamp');
@@ -190,32 +190,6 @@ class Pcsx2Strategy extends EmulatorStrategy {
     } catch (e) {
       debugPrint('[PCSX2] Could not clear the RetroAchievements login: $e');
     }
-  }
-
-  /// Reads [file] (empty when missing and [create]), runs [edit] on it and
-  /// writes it back only if [edit] reports a change. A [private] file is made
-  /// readable by its owner alone before anything secret goes into it.
-  Future<void> _updateIni(
-    io.File file,
-    bool Function(IniFile ini) edit, {
-    bool backup = false,
-    bool create = false,
-    bool private = false,
-  }) async {
-    final exists = await file.exists();
-    if (!exists && !create) return;
-    final ini = IniFile(exists ? await file.readAsString() : '');
-    if (!edit(ini)) return;
-    if (backup && exists) {
-      final copy = io.File('${file.path}.freegosy.bak');
-      if (!await copy.exists()) await file.copy(copy.path);
-    }
-    if (!exists) {
-      await file.parent.create(recursive: true);
-      await file.writeAsString('', flush: true);
-    }
-    if (private && !platform.isWindows) await io.Process.run('chmod', ['600', file.path]);
-    await file.writeAsString(ini.toText(), flush: true);
   }
 
   @override
