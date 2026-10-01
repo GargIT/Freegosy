@@ -20,6 +20,8 @@ class LibraryDialogService {
               final fileName = save['file_name_no_ext'] ?? save['file_name'] ?? 'Unknown Save';
               final createdAtStr = save['created_at'] ?? save['updated_at'] ?? '';
               final createdAt = DateTime.tryParse(createdAtStr.toString());
+              final emulator = (save['emulator'] ?? '').toString();
+              final size = save['file_size_bytes'] is num ? (save['file_size_bytes'] as num).toInt() : null;
 
               String subtitle = 'Unknown date';
               if (createdAt != null) {
@@ -54,7 +56,20 @@ class LibraryDialogService {
                             children: [
                               Text(fileName.toString(), style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
                               const SizedBox(height: 4),
-                              Text(subtitle, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
+                              // Like RomM's save lists: when, the emulator tag
+                              // the save was uploaded with, and its size.
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 4,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  Text(subtitle, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
+                                  if (emulator.isNotEmpty)
+                                    _SaveLabel(emulator, key: const ValueKey('save-emulator-tag'), color: Colors.orange),
+                                  if (size != null)
+                                    _SaveLabel(_formatSize(size), color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                ],
+                              ),
                             ],
                           ),
                         ),
@@ -271,4 +286,30 @@ class LibraryDialogService {
       builder: (ctx) => SaveConflictDialog.forState(conflict: conflict),
     );
   }
+}
+
+/// [bytes] as RomM shows a save's size: B, KB, MB or GB.
+String _formatSize(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+}
+
+/// A small outlined label, like RomM's save chips.
+class _SaveLabel extends StatelessWidget {
+  const _SaveLabel(this.text, {super.key, required this.color});
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: color.withValues(alpha: 0.6)),
+        ),
+        child: Text(text, style: TextStyle(fontSize: 11, color: color)),
+      );
 }
