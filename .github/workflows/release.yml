@@ -167,6 +167,19 @@ jobs:
           cache: true
       - name: Install dependencies
         run: flutter pub get
+      - name: Check pubspec version matches release version
+        shell: bash
+        # inno_bundle takes the installer version from pubspec.yaml, not from the
+        # workflow input (v0.6.0 shipped as 0.5.11).
+        run: |
+          WANT="${{ github.event.inputs.version }}"
+          WANT="${WANT#v}"
+          HAVE=$(grep -m1 '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//' | tr -d '')
+          # pre-release suffixes (0.6.1-pre) are not part of pubspec's version
+          if [ "${WANT%%-*}" != "$HAVE" ]; then
+            echo "::error::pubspec.yaml is $HAVE but release is $WANT - bump pubspec first"
+            exit 1
+          fi
       - name: Build Windows Installer
         run: dart run inno_bundle:build --release
       - name: Stage Windows Artifacts
