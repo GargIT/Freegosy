@@ -111,6 +111,11 @@ class NativeLinuxStrategy extends LinuxEnvironmentStrategy {
   @override
   Future<String?> findAppImageInFolder(String folder, String emulatorId, String executableName) async {
     final dirs = <io.Directory>[io.Directory(folder)];
+    // An AppImage's portable data folder (<name>.AppImage.home) is the easy
+    // one to pick by mistake: the AppImage itself sits beside it.
+    if (folder.toLowerCase().replaceAll(RegExp(r'[\\/]+$'), '').endsWith('.appimage.home')) {
+      dirs.add(io.Directory(p.dirname(p.normalize(folder))));
+    }
     try {
       final nested = <io.Directory>[];
       await for (final entry in io.Directory(folder).list()) {

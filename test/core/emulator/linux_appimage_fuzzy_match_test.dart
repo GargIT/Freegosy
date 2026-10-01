@@ -47,6 +47,13 @@ void main() {
       expect(await strategy.findAppImageInFolder(p.join(root.path, 'mine', 'RetroArch-Linux-x86_64'), 'retroarch', 'retroarch'), nested);
     });
 
+    test("choosing an AppImage's .home data folder finds the AppImage beside it", () async {
+      final appImage = await touch('retroarch/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage');
+      final home = p.join(root.path, 'retroarch', 'RetroArch-Linux-x86_64', 'RetroArch-Linux-x86_64.AppImage.home');
+      await io.Directory(p.join(home, '.config')).create(recursive: true);
+      expect(await strategy.findAppImageInFolder('$home/', 'retroarch', 'retroarch'), appImage);
+    });
+
     test('a user-chosen folder with no matching executable finds nothing', () async {
       await touch('other/readme.txt');
       expect(await strategy.findAppImageInFolder(p.join(root.path, 'other'), 'retroarch', 'retroarch'), isNull);
