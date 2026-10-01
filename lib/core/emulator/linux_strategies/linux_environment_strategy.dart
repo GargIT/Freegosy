@@ -69,15 +69,18 @@ abstract class LinuxEnvironmentStrategy {
   /// the entries of `PATH`.
   static const flatpakFallbackLocations = ['/usr/bin/flatpak', '/usr/local/bin/flatpak', '/bin/flatpak'];
 
-  /// Environment variables to add when launching [emulatorId] as a plain
+  /// Environment variables to set when launching [emulatorId] as a plain
   /// program (not a Flatpak), given the [parent] environment Freegosy runs in;
-  /// empty for nothing. Never overrides a variable already in [parent].
+  /// empty for nothing. Only variables whose value would change are returned.
   ///
   /// Dolphin's AppImage crashes (SIGSEGV in NVIDIA's EGL Wayland library,
   /// `eplWlDisplayInstanceCreate`) as soon as a game opens its render window
   /// in a Wayland session on the NVIDIA driver, with or without Freegosy.
   /// Asking for an X11 EGL platform and Qt's xcb backend (through XWayland)
-  /// avoids it. Other drivers and sessions are left alone.
+  /// avoids it. Both are set together, replacing what the session has: many
+  /// Wayland sessions export `EGL_PLATFORM=wayland` for every program, which
+  /// is what triggers the crash, and an xcb Qt with a Wayland EGL doesn't fit
+  /// anyway. Other drivers and sessions are left alone.
   static Map<String, String> launchEnvironment(
     String emulatorId,
     Map<String, String> parent, {
@@ -87,9 +90,10 @@ abstract class LinuxEnvironmentStrategy {
     final wayland = (parent['WAYLAND_DISPLAY'] ?? '').isNotEmpty;
     final xwayland = (parent['DISPLAY'] ?? '').isNotEmpty;
     if (!wayland || !xwayland) return const {};
+    const wanted = {'EGL_PLATFORM': 'x11', 'QT_QPA_PLATFORM': 'xcb'};
     return {
-      if (!parent.containsKey('EGL_PLATFORM')) 'EGL_PLATFORM': 'x11',
-      if (!parent.containsKey('QT_QPA_PLATFORM')) 'QT_QPA_PLATFORM': 'xcb',
+      for (final entry in wanted.entries)
+        if (parent[entry.key] != entry.value) entry.key: entry.value,
     };
   }
 
