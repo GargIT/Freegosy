@@ -69,6 +69,30 @@ abstract class LinuxEnvironmentStrategy {
   /// the entries of `PATH`.
   static const flatpakFallbackLocations = ['/usr/bin/flatpak', '/usr/local/bin/flatpak', '/bin/flatpak'];
 
+  /// Environment variables to add when launching [emulatorId] as a plain
+  /// program (not a Flatpak), given the [parent] environment Freegosy runs in;
+  /// empty for nothing. Never overrides a variable already in [parent].
+  ///
+  /// Dolphin's AppImage crashes (SIGSEGV in NVIDIA's EGL Wayland library,
+  /// `eplWlDisplayInstanceCreate`) as soon as a game opens its render window
+  /// in a Wayland session on the NVIDIA driver, with or without Freegosy.
+  /// Asking for an X11 EGL platform and Qt's xcb backend (through XWayland)
+  /// avoids it. Other drivers and sessions are left alone.
+  static Map<String, String> launchEnvironment(
+    String emulatorId,
+    Map<String, String> parent, {
+    required bool nvidiaDriver,
+  }) {
+    if (emulatorId != 'dolphin' || !nvidiaDriver) return const {};
+    final wayland = (parent['WAYLAND_DISPLAY'] ?? '').isNotEmpty;
+    final xwayland = (parent['DISPLAY'] ?? '').isNotEmpty;
+    if (!wayland || !xwayland) return const {};
+    return {
+      if (!parent.containsKey('EGL_PLATFORM')) 'EGL_PLATFORM': 'x11',
+      if (!parent.containsKey('QT_QPA_PLATFORM')) 'QT_QPA_PLATFORM': 'xcb',
+    };
+  }
+
   /// True when [exe] is the `flatpak` command, bare or resolved to a path.
   static bool isFlatpakExecutable(String exe) => p.basename(exe) == 'flatpak';
 
