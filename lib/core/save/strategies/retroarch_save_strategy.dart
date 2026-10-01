@@ -883,8 +883,34 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
 
   static final _stateSuffixPattern = RegExp(r'\.state(\d{1,3}|\.auto)?$');
 
+  /// Forgets everything read from retroarch.cfg and the install found, so the
+  /// next lookup starts from what is on disk now (RetroArch rewrites its
+  /// config on exit, and the emulator can be installed or switched while
+  /// Freegosy runs).
+  void _forgetConfig() {
+    _appImageResolved = false;
+    _appImageConfig = null;
+    _appImageHome = null;
+    _cachedSaveRoot = null;
+    _cachedStateDir = null;
+    _cachedSortSavefiles = null;
+    _cachedSortSavefilesByContent = null;
+    _cachedSavefilesInContentDir = null;
+    _cachedSortSavestates = null;
+    _cachedSortSavestatesByContent = null;
+    _cachedSavestatesInContentDir = null;
+    _cachedConfigDir = null;
+    _cachedSystemDir = null;
+    _cachedCoreOptionsDir = null;
+    _cachedActiveCore = null;
+  }
+
+  /// Every state lookup (the game page's Resume list, sync) rereads the
+  /// config first, like PCSX2's, instead of trusting what an earlier launch or
+  /// page saw.
   @override
   Future<String> stateDirectory(Game game, String romPath) async {
+    _forgetConfig();
     final slug = game.platformSlug?.toLowerCase() ?? '';
     final coreInfo = _getCoreInfo(slug);
     if (coreInfo == null) {
