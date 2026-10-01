@@ -12,6 +12,15 @@ import 'package:freegosy/core/storage/shared_preferences_app_preferences.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// A DirectoryService that finds no installed emulator, so a test never needs
+/// the app's emulators folder.
+class _NoEmulatorsDirectoryService extends DirectoryService {
+  _NoEmulatorsDirectoryService(super.prefs);
+
+  @override
+  Future<String?> findEmulatorExecutable(String emulatorId, String executableName) async => null;
+}
+
 void main() {
   late RetroArchSaveStrategy strategy;
   late RetroArchStrategy emulator;
@@ -103,7 +112,7 @@ void main() {
       await io.File(p.join(configDir, 'retroarch.cfg')).writeAsString(cfg.replaceAll('{home}', home.path));
       SharedPreferences.setMockInitialValues({});
       final prefs = SharedPreferencesAppPreferences(await SharedPreferences.getInstance());
-      final configured = RetroArchSaveStrategy(DirectoryService(prefs),
+      final configured = RetroArchSaveStrategy(_NoEmulatorsDirectoryService(prefs),
           prefs: prefs, platform: PlatformInfo('linux', environment: {'HOME': home.path}));
       return configured.stateDirectory(game, p.join(home.path, 'roms', 'gba', 'Pokemon Emerald.gba'));
     }
