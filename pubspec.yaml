@@ -162,3 +162,9 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# Freegosy's patched gamepads_linux: upstream aborts the whole app at startup
+# when the user's inotify instance limit is used up (see its PATCHES.md).
+dependency_overrides:
+  gamepads_linux:
+    path: thirdparty/gamepads_linux

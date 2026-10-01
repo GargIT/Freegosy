@@ -443,10 +443,9 @@ packages:
   gamepads_linux:
     dependency: transitive
     description:
-      name: gamepads_linux
-      sha256: "80bf70df6da6185926e6d8b2feb98e725e6fe99290afafaea91dba471e8c1c1e"
-      url: "https://pub.dev"
-    source: hosted
+      path: "thirdparty/gamepads_linux"
+      relative: true
+    source: path
     version: "0.1.2"
   gamepads_platform_interface:
     dependency: transitive
