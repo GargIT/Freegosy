@@ -5,7 +5,7 @@
 ## [Unreleased]
 
 ### Fixed
-- **Dolphin crashed as soon as a game started on Linux with an NVIDIA GPU under Wayland**: the Dolphin AppImage segfaults inside NVIDIA's EGL Wayland library when a game opens its render window (reproduced running it by hand, with and without Freegosy). On such sessions Freegosy now starts Dolphin with `EGL_PLATFORM=x11` and `QT_QPA_PLATFORM=xcb` (XWayland), unless you have set either yourself. Other drivers and sessions are unchanged. (The two windows Dolphin shows, the game and its main window, are normal.)
+- **Dolphin crashed as soon as a game started on Linux with an NVIDIA GPU under Wayland**: the Dolphin AppImage segfaults inside NVIDIA's EGL Wayland library when a game opens its render window (reproduced running it by hand, with and without Freegosy). On such sessions Freegosy now starts Dolphin with `EGL_PLATFORM=x11` and `QT_QPA_PLATFORM=xcb` (XWayland), replacing the `EGL_PLATFORM=wayland` many Wayland sessions export for every program. Other drivers and sessions are unchanged. (The two windows Dolphin shows, the game and its main window, are normal.)
 - **Dolphin couldn't be downloaded on Linux**: Dolphin's own site only offers a Flatpak bundle there, which Freegosy copied into the emulators folder where it can't run, so Dolphin was reported as not found afterwards. Linux now downloads the community Dolphin AppImage (from `pkgforge-dev/Dolphin-emu-AppImage`) like it does for PPSSPP; Windows and macOS still download from Dolphin's site, and their update check now uses Dolphin's own asset filters.
 
 ### Added
