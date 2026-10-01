@@ -1201,7 +1201,11 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
 
       // Handle .sav to .srm renaming for RetroArch NDS cores
       String targetFilename = filename;
-      if (!isState && filename.toLowerCase().endsWith('.sav')) {
+      // RomM's web player names saves "<game> [timestamp].srm"; RetroArch only
+      // opens "<rom>.srm", so a save it can't match by name is renamed to it.
+      if (!isState && RegExp(r'\]\.(sav|srm)$', caseSensitive: false).hasMatch(filename)) {
+        targetFilename = '${p.basenameWithoutExtension(destPath)}.srm';
+      } else if (!isState && filename.toLowerCase().endsWith('.sav')) {
         targetFilename = '${p.basenameWithoutExtension(filename)}.srm';
       } else if (!isState && isPs1Port1Card(slug, filename, data)) {
         targetFilename = '${getRomStem(game)}.srm';

@@ -127,6 +127,17 @@ abstract class SaveStrategy {
   // ─── Shared helper: ROM stem ──────────────────────────────────────────────
 
   /// Returns the base filename (without extension) used to identify save files.
+  /// Whether [fileName] is a `.sav`/`.srm` for exactly one of [stems] (ROM
+  /// names, no extension). RomM's web player adds a ` [timestamp]` suffix,
+  /// which is ignored. Partial/word matches are deliberately not accepted: a
+  /// shared title word would pick another game's save.
+  static bool saveNameMatchesRom(String fileName, Iterable<String> stems) {
+    final lower = fileName.toLowerCase();
+    if (!lower.endsWith('.sav') && !lower.endsWith('.srm')) return false;
+    final base = lower.substring(0, lower.length - 4).replaceFirst(RegExp(r'\s*\[[^\]]*\]$'), '');
+    return stems.any((s) => s.toLowerCase() == base);
+  }
+
   String getRomStem(Game game) {
     final name = game.fsName ?? game.name;
     final dot = name.lastIndexOf('.');

@@ -45,66 +45,51 @@ class MelonDsSaveStrategy extends SaveStrategy {
     }
 
     final romDir = io.File(romPath).parent.path;
+    final stems = _stems(game, romPath);
 
-    // 1. ROM-adjacent (standalone melonDS default on Windows/macOS)
-    if (await io.Directory(romDir).exists()) {
-      final stem = p.basenameWithoutExtension(romPath).toLowerCase();
-      final dir = io.Directory(romDir);
-      await for (final entity in dir.list()) {
-        if (entity is io.File) {
-          final fname = p.basename(entity.path).toLowerCase();
-          if (fname == '$stem.sav' || fname == '$stem.srm') {
-            debugPrint('[SaveSync] [melonDS]   → ROM-adjacent match: $fname in $romDir');
-            return romDir;
-          }
-        }
-      }
-    }
-
-    // 2. %APPDATA%\melonDS on Windows
+    // Standalone melonDS keeps `<rom>.sav` next to the ROM by default, so a
+    // save found anywhere else wins only if it really is this game's.
+    final candidates = <String>[romDir];
     if (_platform.isWindows) {
       final appData = _platform.environment['APPDATA'] ?? '';
-      if (appData.isNotEmpty) {
-        for (final folderName in ['melonDS', 'melonds']) {
-          final melonDir = io.Directory(p.join(appData, folderName));
-          if (await melonDir.exists()) {
-            debugPrint('[SaveSync] [melonDS]   → Windows APPDATA: ${melonDir.path}');
-            return melonDir.path;
-          }
-        }
-      }
       final userProfile = _platform.environment['USERPROFILE'] ?? '';
-      if (userProfile.isNotEmpty) {
-        final docsDir = io.Directory(p.join(userProfile, 'Documents', 'melonDS'));
-        if (await docsDir.exists()) {
-          debugPrint('[SaveSync] [melonDS]   → Windows Documents: ${docsDir.path}');
-          return docsDir.path;
-        }
+      if (appData.isNotEmpty) {
+        candidates.addAll([p.join(appData, 'melonDS'), p.join(appData, 'melonds')]);
       }
-    }
-
-    // 3. macOS: ~/Library/Application Support/melonDS
-    if (_platform.isMacOS) {
+      if (userProfile.isNotEmpty) candidates.add(p.join(userProfile, 'Documents', 'melonDS'));
+    } else if (_platform.isMacOS) {
       final home = _platform.environment['HOME'] ?? '';
-      if (home.isNotEmpty) {
-        final macDir = io.Directory(p.join(home, 'Library', 'Application Support', 'melonDS'));
-        if (await macDir.exists()) {
-          debugPrint('[SaveSync] [melonDS]   → macOS App Support: ${macDir.path}');
-          return macDir.path;
-        }
+      if (home.isNotEmpty) candidates.add(p.join(home, 'Library', 'Application Support', 'melonDS'));
+    }
+    for (final dir in candidates) {
+      if (await _findSave(dir, stems) != null) {
+        debugPrint('[SaveSync] [melonDS]   → existing save in $dir');
+        return dir;
       }
     }
 
-    // 4. Fallback: RetroArch melonDS/DeSmuME core save directory
-    _cachedRetroarchDir ??= await SaveStrategy.retroarchCoreSaveDir(_directoryService, 'NDS', platform: _platform);
-    if (_cachedRetroarchDir != null) {
-      debugPrint('[SaveSync] [melonDS]   → RetroArch core fallback: $_cachedRetroarchDir');
-      return _cachedRetroarchDir;
-    }
-
-    // 5. Absolute fallback
-    debugPrint('[SaveSync] [melonDS]   → absolute fallback: $romDir (ROM directory)');
+    debugPrint('[SaveSync] [melonDS]   → ROM directory: $romDir');
     return romDir;
+  }
+
+  Set<String> _stems(Game game, String romPath) =>
+      {p.basenameWithoutExtension(romPath), getRomStem(game)};
+
+  /// This game's save in [dir], matched on the exact ROM name only (a title
+  /// word shared with another game must never match).
+  Future<io.File?> _findSave(String dir, Set<String> stems, {DateTime? sessionStart}) async {
+    final d = io.Directory(dir);
+    if (!await d.exists()) return null;
+    await for (final entity in d.list()) {
+      if (entity is! io.File) continue;
+      if (!SaveStrategy.saveNameMatchesRom(p.basename(entity.path), stems)) continue;
+      if (sessionStart != null &&
+          (await entity.stat()).modified.isBefore(sessionStart.subtract(const Duration(seconds: 2)))) {
+        continue;
+      }
+      return entity;
+    }
+    return null;
   }
 
   @override
@@ -116,65 +101,13 @@ class MelonDsSaveStrategy extends SaveStrategy {
       return [];
     }
 
-    final romStem = p.basenameWithoutExtension(romPath).toLowerCase();
-    final fallbackStem = getRomStem(game).toLowerCase();
-    final stemWords = romStem
-        .replaceAll(RegExp(r'[^a-z0-9]'), ' ')
-        .split(' ')
-        .where((w) => w.length >= 3)
-        .toList();
-
-    debugPrint('[SaveSync] [melonDS] getSaveFiles: searching in $saveDir');
-    debugPrint('[SaveSync] [melonDS]   looking for: $romStem.sav / $romStem.srm (or $fallbackStem.*)');
-
-    final dir = io.Directory(saveDir);
-    if (!await dir.exists()) {
-      debugPrint('[SaveSync] [melonDS]   save dir does not exist');
+    final found = await _findSave(saveDir, _stems(game, romPath), sessionStart: sessionStart);
+    if (found == null) {
+      debugPrint('[SaveSync] [melonDS]   no save for this game in $saveDir');
       return [];
     }
-
-    // Exact match
-    final List<io.File> foundFiles = [];
-    await for (final entity in dir.list()) {
-      if (entity is! io.File) continue;
-      final fname = p.basename(entity.path).toLowerCase();
-      if ((fname == '$romStem.sav' || fname == '$fallbackStem.sav' || fname == '$romStem.srm' || fname == '$fallbackStem.srm')) {
-        if (sessionStart != null) {
-          final stat = await entity.stat();
-          if (stat.modified.isBefore(sessionStart.subtract(const Duration(seconds: 2)))) {
-            debugPrint('[SaveSync] [melonDS]   skip (before sessionStart): $fname');
-            continue;
-          }
-        }
-        debugPrint('[SaveSync] [melonDS]   → exact match: ${entity.path}');
-        foundFiles.add(entity);
-        break;
-      }
-    }
-
-    // Fuzzy fallback: match by word tokens
-    if (foundFiles.isEmpty && stemWords.isNotEmpty) {
-      debugPrint('[SaveSync] [melonDS]   no exact match, trying fuzzy: $stemWords');
-      await for (final entity in dir.list()) {
-        if (entity is! io.File) continue;
-        final fname = p.basename(entity.path).toLowerCase();
-        if (!fname.endsWith('.srm') && !fname.endsWith('.sav')) continue;
-        if (stemWords.any((word) => fname.contains(word))) {
-          if (sessionStart != null) {
-            final stat = await entity.stat();
-            if (stat.modified.isBefore(sessionStart.subtract(const Duration(seconds: 2)))) continue;
-          }
-          debugPrint('[SaveSync] [melonDS]   → fuzzy match: ${entity.path}');
-          foundFiles.add(entity);
-          break;
-        }
-      }
-    }
-
-    if (foundFiles.isEmpty) {
-      debugPrint('[SaveSync] [melonDS]   no save files found in $saveDir');
-    }
-    return foundFiles;
+    debugPrint('[SaveSync] [melonDS]   → match: ${found.path}');
+    return [found];
   }
 
   @override
@@ -187,66 +120,32 @@ class MelonDsSaveStrategy extends SaveStrategy {
         return false;
       }
 
-      final romStem = p.basenameWithoutExtension(destPath).toLowerCase();
-      final fallbackStem = getRomStem(game).toLowerCase();
-      String targetPath = p.normalize(p.join(saveDir, '$romStem.sav'));
-      debugPrint('[SaveSync] [melonDS] restoreSave: filename=$filename  targetDir=$saveDir');
+      final romStem = p.basenameWithoutExtension(destPath);
+      final existing = await _findSave(saveDir, _stems(game, destPath));
+      final targetPath = existing?.path ?? p.normalize(p.join(saveDir, '$romStem.sav'));
+      debugPrint('[SaveSync] [melonDS] restoreSave: filename=$filename  target=$targetPath');
 
-      if (filename.toLowerCase().endsWith('.zip')) {
-        debugPrint('[SaveSync] [melonDS]   extracting ZIP...');
-        final archive = ZipDecoder().decodeBytes(data);
-        for (final file in archive) {
-          if (!file.isFile) continue;
-          if (file.name == 'freegosy_sync.txt') continue;
-          if (file.name.toLowerCase().endsWith('.sav')) {
-            debugPrint('[SaveSync] [melonDS]   → extracted ${file.name} → $targetPath');
-            await io.Directory(p.dirname(targetPath)).create(recursive: true);
-            await backupSave(targetPath);
-            await io.File(targetPath).writeAsBytes(file.content);
-            return true;
-          }
-        }
-        debugPrint('[SaveSync] [melonDS]   ZIP contained no .sav files');
-        return true;
-      }
-
-      final dir = io.Directory(saveDir);
-      if (await dir.exists()) {
-        await for (final entity in dir.list()) {
-          if (entity is! io.File) continue;
-          final fname = p.basename(entity.path).toLowerCase();
-          if (fname == '$romStem.sav' || fname == '$fallbackStem.sav' || fname == '$romStem.srm' || fname == '$fallbackStem.srm') {
-            targetPath = entity.path;
-            debugPrint('[SaveSync] [melonDS]   → found existing save: $targetPath');
+      Uint8List? bytes;
+      final lower = filename.toLowerCase();
+      if (lower.endsWith('.zip')) {
+        for (final file in ZipDecoder().decodeBytes(data)) {
+          final n = file.name.toLowerCase();
+          if (file.isFile && (n.endsWith('.sav') || n.endsWith('.srm'))) {
+            bytes = Uint8List.fromList(file.content);
             break;
           }
         }
-        // Fuzzy fallback if strict match failed
-        if (targetPath == p.normalize(p.join(saveDir, '$romStem.sav'))) {
-          final stemWords = romStem
-              .replaceAll(RegExp(r'[^a-z0-9]'), ' ')
-              .split(' ')
-              .where((w) => w.length >= 3)
-              .toList();
-          if (stemWords.isNotEmpty) {
-            await for (final entity in dir.list()) {
-              if (entity is! io.File) continue;
-              final fname = p.basename(entity.path).toLowerCase();
-              if (!fname.endsWith('.srm') && !fname.endsWith('.sav')) continue;
-              if (stemWords.any((word) => fname.contains(word))) {
-                targetPath = entity.path;
-                debugPrint('[SaveSync] [melonDS]   → fuzzy match existing: $targetPath');
-                break;
-              }
-            }
-          }
+        if (bytes == null) {
+          debugPrint('[SaveSync] [melonDS]   ZIP contained no .sav/.srm files');
+          return true;
         }
+      } else {
+        bytes = data;
       }
 
-      debugPrint('[SaveSync] [melonDS]   writing ${data.length} bytes → $targetPath');
       await io.Directory(p.dirname(targetPath)).create(recursive: true);
       await backupSave(targetPath);
-      await io.File(targetPath).writeAsBytes(data);
+      await io.File(targetPath).writeAsBytes(bytes);
       return true;
     } catch (e) {
       debugPrint('[SaveSync] [melonDS] restoreSave ERROR: $e');
