@@ -209,6 +209,15 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
 
     final List<String> candidates = [];
 
+    // RetroArch's own config folder first: the Flatpak keeps its retroarch.cfg
+    // under ~/.var/app, which none of the fixed paths below reach.
+    if (_platform.isLinux) {
+      try {
+        final baseDir = await _directoryService.getEmulatorAppSupportDirectory('retroarch');
+        candidates.add(p.join(baseDir, 'retroarch.cfg'));
+      } catch (_) {}
+    }
+
     if (_platform.isMacOS) {
       final home = _platform.environment['HOME'] ?? '';
       candidates.add(p.join(home, 'Library', 'Application Support', 'RetroArch', 'config', 'retroarch.cfg'));
@@ -791,9 +800,10 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
           // baseDir is .../Emulation/saves/retroarch
           return p.join(p.dirname(p.dirname(baseDir)), 'states', 'retroarch');
         case 'retrodeck':
-          return p.join(baseDir, 'states');
         default:
-          return p.join(p.dirname(baseDir), 'states');
+          // baseDir is RetroArch's own config folder (~/.config/retroarch, or
+          // the Flatpak's config/retroarch), which holds states/ and saves/.
+          return p.join(baseDir, 'states');
       }
     }
     final saveRoot = await _resolveSaveRoot();

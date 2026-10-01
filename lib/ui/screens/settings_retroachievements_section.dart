@@ -412,9 +412,7 @@ class _SettingsRetroAchievementsSectionState extends ConsumerState<SettingsRetro
               contentPadding: EdgeInsets.zero,
               title: const Text('Hardcore mode', style: TextStyle(fontSize: 14)),
               subtitle: Text(
-                emulatorLogin.hardcore == null
-                    ? "Using RetroArch's own setting. No save states, rewind or cheats; unlocks count as hardcore."
-                    : 'No save states, rewind or cheats; unlocks count as hardcore.',
+                'Off by default. When on: no save states, rewind or cheats; unlocks count as hardcore.',
                 style: const TextStyle(fontSize: 12),
               ),
               value: emulatorLogin.hardcore ?? false,
