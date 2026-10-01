@@ -62,6 +62,33 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
   bool? _cachedSortSavestatesByContent;
   bool? _cachedSavestatesInContentDir;
 
+  /// RetroArch's config folder for a portable AppImage: the AppImage runtime
+  /// uses `<AppImage>.home` as `$HOME` when that folder sits beside it, so
+  /// the config, saves and states are in `<AppImage>.home/.config/retroarch`.
+  /// Null for any other install (and until the AppImage has run once).
+  String? _appImageConfig;
+  bool _appImageResolved = false;
+
+  Future<String?> _appImageConfigDir() async {
+    if (!_platform.isLinux) return null;
+    if (_appImageResolved) return _appImageConfig;
+    try {
+      final exe = await _directoryService.findEmulatorExecutable('retroarch', _getRetroArchExe());
+      if (exe != null && !exe.startsWith('flatpak ') && await io.Directory('$exe.home').exists()) {
+        final cfg = p.join('$exe.home', '.config', 'retroarch');
+        if (await io.Directory(cfg).exists()) _appImageConfig = cfg;
+      }
+    } catch (_) {}
+    _appImageResolved = true;
+    return _appImageConfig;
+  }
+
+  /// RetroArch's config folder (holding `saves/` and `states/`) on Linux:
+  /// the portable AppImage's, else the preset's (`~/.config/retroarch`, the
+  /// Flatpak's, EmuDeck's, RetroDECK's).
+  Future<String> _linuxBaseDir(String? slug) async =>
+      await _appImageConfigDir() ?? await _directoryService.getEmulatorAppSupportDirectory('retroarch', platformSlug: slug);
+
   final SerialExtractionService? _serials;
 
   // Test-only override to skip reading the real retroarch.cfg.
@@ -213,7 +240,7 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
     // under ~/.var/app, which none of the fixed paths below reach.
     if (_platform.isLinux) {
       try {
-        final baseDir = await _directoryService.getEmulatorAppSupportDirectory('retroarch');
+        final baseDir = await _linuxBaseDir(null);
         candidates.add(p.join(baseDir, 'retroarch.cfg'));
       } catch (_) {}
     }
@@ -627,7 +654,7 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
     debugPrint('[SaveSync] [retroarch] getSaveDir: slug="$slug" core=${coreInfo.coreName} saveFolder=${coreInfo.saveFolder}');
 
     if (_platform.isLinux) {
-      final baseDir = await _directoryService.getEmulatorAppSupportDirectory('retroarch', platformSlug: slug);
+      final baseDir = await _linuxBaseDir(slug);
       final isEmuDeck = _directoryService.linuxSyncPreset == 'emudeck' || baseDir.contains('Emulation/saves');
       debugPrint('[SaveSync] [retroarch] getSaveDir linux baseDir=$baseDir emudeck=$isEmuDeck');
 
@@ -794,7 +821,7 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
   /// roots).
   Future<String> _defaultStatesRoot(String slug) async {
     if (_platform.isLinux) {
-      final baseDir = await _directoryService.getEmulatorAppSupportDirectory('retroarch', platformSlug: slug);
+      final baseDir = await _linuxBaseDir(slug);
       switch (_directoryService.linuxSyncPreset) {
         case 'emudeck':
           // baseDir is .../Emulation/saves/retroarch
