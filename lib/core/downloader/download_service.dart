@@ -62,6 +62,15 @@ class DownloadProgress {
 }
 
 class DownloadService {
+  /// Whether [path] ends in a real file extension. A dot inside a title
+  /// ("Vol. 1 - Foo") makes `p.extension` return text with spaces, which is
+  /// not an extension.
+  @visibleForTesting
+  static bool hasRealExtension(String path) {
+    final ext = p.extension(path);
+    return ext.length > 1 && ext.length <= 6 && !ext.contains(' ');
+  }
+
   /// Whether [path] is an archive Freegosy unpacks after downloading (a Windows
   /// game, or a ROM for a platform whose emulator can't read archives).
   @visibleForTesting
@@ -143,8 +152,7 @@ class DownloadService {
     // path from getRomFilePath() may lack an extension (e.g. "Gamename"
     // instead of "Gamename.chd"). Pull the extension from the resolved
     // filename when the path has none.
-    final currentExt = p.extension(finalPath).toLowerCase();
-    if (currentExt.isEmpty && isSingleFileFoldered) {
+    if (!hasRealExtension(finalPath) && isSingleFileFoldered) {
       final metaExt = p.extension(fallbackFileName).toLowerCase();
       if (metaExt.isNotEmpty) {
         finalPath = '$finalPath$metaExt';
@@ -213,7 +221,7 @@ class DownloadService {
       // response's Content-Disposition header is the authoritative source
       // (it reflects the actual file on disk), so use it to fix up the
       // extension when our best-effort guess above came up empty.
-      if (p.extension(finalPath).isEmpty) {
+      if (!hasRealExtension(finalPath)) {
         final cdFileName = parseContentDispositionFileName(response.headers.value('content-disposition'));
         final cdExt = cdFileName != null ? p.extension(cdFileName) : '';
         if (cdExt.isNotEmpty) {
