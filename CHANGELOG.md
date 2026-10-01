@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Added
+- **RetroArch save-state sync and Resume Game**: RetroArch states (`<game>.state`, `.state1`..., `.state.auto`, found in the per-core `states/` folder) sync through the same opt-in "Sync save states" switch as PCSX2 and DuckStation, and show up under **Resume Game ▾**, which boots RetroArch with `-e <slot>`. RetroArch states don't record the core build, so the slot list shows their format (e.g. "RASTATE v1") and never warns about versions; the auto slot is synced but can't be resumed from (RetroArch's command line only loads numbered slots). With the switch on, states no longer travel inside the game save; with it off, nothing changes. Their `.png` thumbnail is uploaded with the state. Slot 0 (`<game>.state`, no number) is now included in the old save-zip path too.
+
 ## [0.6.0] - 2026-09-26
 
 ### Added

@@ -41,6 +41,11 @@ abstract class EmulatorStrategy {
   /// [statePath]. Only used when [supportsStateLoadOnLaunch] is true.
   List<String> stateLoadArgs(String statePath) => const [];
 
+  /// Whether the state file named [fileName] can be loaded with
+  /// [stateLoadArgs]. A state this says no to is not offered by Resume Game
+  /// (RetroArch's command line can load numbered slots but not its auto slot).
+  bool canLoadState(String fileName) => true;
+
   /// The installed emulator's version as the emulator reports it (e.g.
   /// `2.8.2.0`), or null when it cannot be determined. Compared with the
   /// version a save state records to warn before loading a state from a

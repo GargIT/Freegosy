@@ -1,6 +1,6 @@
-# Save-state sync (PCSX2, DuckStation)
+# Save-state sync (PCSX2, DuckStation, RetroArch)
 
-Freegosy can sync **PCSX2 and DuckStation save states** between your machines
+Freegosy can sync **PCSX2, DuckStation and RetroArch save states** between your machines
 through your RomM server. Save states are the emulator snapshots you make with
 the quick-save keys (PCSX2's `SERIAL (CRC).01.p2s`, DuckStation's
 `SERIAL_1.sav` and so on). They are **not** the in-game memory-card saves:
@@ -13,9 +13,9 @@ This page describes the feature and how it behaves.
 
 | | |
 |---|---|
-| Emulators | PCSX2 and DuckStation for now. Every other emulator shows the toggle disabled with "Not supported yet". |
+| Emulators | PCSX2, DuckStation and RetroArch for now. Every other emulator shows the toggle disabled with "Not supported yet". |
 | Default | **Off.** Turn it on per emulator. |
-| Where | Settings → Emulators → PCSX2 / DuckStation → "Sync save states"; "Sync Save States" button on a game's page. |
+| Where | Settings → Emulators → PCSX2 / DuckStation / RetroArch → "Sync save states"; "Sync Save States" button on a game's page. |
 | Resume | **Resume Game ▾** on the game page (see [Resume Game](#resume-game)). |
 | RomM API | `/api/states` (separate from `/api/saves`). Works on any RomM that has the states API. |
 | Privacy | States and their screenshots belong to your RomM user; Freegosy never makes them public. Checked on a real RomM: another user does not see them, and they do not appear in the game's screenshot gallery. |
@@ -59,6 +59,32 @@ detection as memory-card sync.
   `portable.txt` or `settings.ini` next to the exe, which is how Freegosy
   installs it), `%LOCALAPPDATA%\DuckStation\savestates` on a standard Windows
   install, and DuckStation's data folder elsewhere.
+
+**RetroArch**
+- `<content>.state` (slot 0, no number), `<content>.stateN` (slots 1 and up)
+  and `<content>.state.auto` (the auto slot), named after the content file
+  (the ROM's file name without its extension). The `<state>.png` thumbnail
+  beside a state (RetroArch's "Save State Thumbnails") is uploaded with it.
+- States folder: read from `retroarch.cfg` the way RetroArch does. By default
+  `<RetroArch>/states/<core folder>` (the core folder is the core's
+  `library_name`, e.g. `mGBA`; EmuDeck and RetroDECK use their own roots).
+  `savestate_directory` moves the root, `sort_savestates_by_content_enable`
+  adds the ROM's folder name, `sort_savestates_enable = false` drops the core
+  folder, and `savestates_in_content_dir = true` puts states next to the ROM.
+  With the default per-core folders, only the states of the core the game runs
+  with are synced; a state made by another core of the same platform is not
+  seen, and two cores' states of one game share a file name on RomM, so use one
+  core per game when syncing.
+- Format: `RASTATE` + a version byte followed by blocks, or the same inside
+  RetroArch's compressed container (`#RZIPv`). States written by very old
+  frontends (bare core data) are not recognised and are skipped.
+- With the switch on, states stay out of the game-save upload and are ignored
+  when an older save containing them is restored. With it off they still travel
+  inside the game save, as before.
+- Resume boots RetroArch with `-e <slot>`; the auto slot can't be loaded that
+  way, so it syncs but isn't offered by Resume. A state records neither the
+  core nor its build, so Resume never warns about versions: a state the core
+  can't load fails inside RetroArch.
 
 ## When it runs
 
@@ -200,7 +226,7 @@ Safety rules that always apply:
 
 ## Known limitations
 
-- PCSX2 and DuckStation only; other emulators can opt in later.
+- PCSX2, DuckStation and RetroArch only; other emulators can opt in later.
 - Deleting a state does not delete it on RomM, and deletes are not propagated
   between machines.
 - One RomM account per Freegosy install. After switching accounts, states you had
@@ -356,5 +382,5 @@ Safety rules that always apply:
 - Headless CLI `--resume`: the `launch` command currently always starts
   fresh; a flag to resume the newest (or a named) state would bring Resume
   Game to scripted/headless launches too.
-- Other emulators (RetroArch, PPSSPP, ares, Dolphin).
+- Other emulators (PPSSPP, ares, Dolphin).
 - Deleting states on RomM and propagating deletes.
