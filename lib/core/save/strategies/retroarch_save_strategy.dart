@@ -69,19 +69,37 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
   String? _appImageConfig;
   bool _appImageResolved = false;
 
+  /// The portable AppImage's `$HOME` (`<AppImage>.home`): what `~` means in its
+  /// retroarch.cfg. Set once [_appImageConfigDir] has found the AppImage.
+  String? _appImageHome;
+
   Future<String?> _appImageConfigDir() async {
     if (!_platform.isLinux) return null;
     if (_appImageResolved) return _appImageConfig;
     try {
-      final exe = await _directoryService.findEmulatorExecutable('retroarch', _getRetroArchExe());
-      if (exe != null && !exe.startsWith('flatpak ') && await io.Directory('$exe.home').exists()) {
-        final cfg = p.join('$exe.home', '.config', 'retroarch');
-        if (await io.Directory(cfg).exists()) _appImageConfig = cfg;
+      var exe = await _directoryService.findEmulatorExecutable('retroarch', _getRetroArchExe());
+      if (exe != null && !exe.startsWith('flatpak ')) {
+        // The AppImage runtime looks for <AppImage>.home beside the real file,
+        // so a symlink to it (e.g. one named "retroarch") must be followed.
+        try {
+          exe = await io.File(exe).resolveSymbolicLinks();
+        } catch (_) {}
+        final home = '$exe.home';
+        final cfg = p.join(home, '.config', 'retroarch');
+        if (await io.Directory(cfg).exists()) {
+          _appImageHome = home;
+          _appImageConfig = cfg;
+        }
       }
     } catch (_) {}
     _appImageResolved = true;
     return _appImageConfig;
   }
+
+  /// What `~` stands for in retroarch.cfg: the portable AppImage's home when
+  /// that is the install in use, else the user's.
+  String? get _configHome =>
+      _appImageHome ?? _platform.environment['HOME'] ?? _platform.environment['USERPROFILE'];
 
   /// RetroArch's config folder (holding `saves/` and `states/`) on Linux:
   /// the portable AppImage's, else the preset's (`~/.config/retroarch`, the
@@ -299,7 +317,7 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
           if (saveMatch != null) {
             var dir = saveMatch.group(1)!;
             if (dir.startsWith('~')) {
-              final home = _platform.environment['HOME'];
+              final home = _configHome;
               if (home != null) dir = dir.replaceFirst('~', home);
             }
             if (await io.Directory(dir).exists()) {
@@ -428,7 +446,7 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
     if (v.isEmpty || v == 'default') return null;
     if (v.startsWith(':')) return p.normalize(p.join(cfgDir, v.substring(1).replaceFirst(RegExp(r'^[\\/]+'), '')));
     if (v.startsWith('~')) {
-      final home = _platform.environment['HOME'] ?? _platform.environment['USERPROFILE'];
+      final home = _configHome;
       if (home != null) v = v.replaceFirst('~', home);
     }
     return v;

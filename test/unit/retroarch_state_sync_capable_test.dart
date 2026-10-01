@@ -177,6 +177,28 @@ void main() {
           p.join(portable, 'states', 'mGBA'));
     });
 
+    test('a symlink to the AppImage still finds its .home, and ~ in its retroarch.cfg means that .home', () async {
+      home = await io.Directory.systemTemp.createTemp('ra_appimage_link');
+      addTearDown(() => home.delete(recursive: true));
+      final exe = p.join(home.path, 'Emulators', 'retroarch', 'RetroArch-Linux-x86_64.AppImage');
+      final portable = p.join('$exe.home', '.config', 'retroarch');
+      await io.Directory(portable).create(recursive: true);
+      await io.File(exe).create();
+      final link = p.join(home.path, 'Emulators', 'retroarch', 'retroarch');
+      await io.Link(link).create(exe);
+      await io.File(p.join(portable, 'retroarch.cfg')).writeAsString('savestate_directory = "~/.config/retroarch/states"\n');
+      SharedPreferences.setMockInitialValues({});
+      final prefs = SharedPreferencesAppPreferences(await SharedPreferences.getInstance());
+      final viaLink = RetroArchSaveStrategy(
+          _NoEmulatorsDirectoryService(prefs, p.join(home.path, '.var', 'app', 'org.libretro.RetroArch', 'config', 'retroarch'),
+              exePath: link),
+          prefs: prefs,
+          platform: PlatformInfo('linux', environment: {'HOME': home.path}));
+
+      expect(await viaLink.stateDirectory(game, p.join(home.path, 'roms', 'gba', 'Pokemon Emerald.gba')),
+          p.join('$exe.home', '.config', 'retroarch', 'states', 'mGBA'));
+    });
+
     test('savestates_in_content_dir puts states next to the ROM', () async {
       final dir = await stateDirFor('savestates_in_content_dir = "true"\n');
       expect(dir, p.join(home.path, 'roms', 'gba'));
