@@ -1,4 +1,5 @@
 import 'dart:io' as io;
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:freegosy/core/platform/platform_info.dart';
 import 'package:freegosy/core/romm/romm_models.dart';
@@ -192,8 +193,21 @@ class NativeLinuxStrategy extends LinuxEnvironmentStrategy {
     } else if (exePath.endsWith('.sh')) {
       await io.Process.start('bash', [exePath, ...args, romPath], mode: io.ProcessStartMode.detached);
     } else {
-      await io.Process.start(exePath, [...args, romPath], mode: io.ProcessStartMode.detached);
+      await io.Process.start(exePath, [...args, romPath],
+          mode: io.ProcessStartMode.detached, environment: _launchEnvironment(emulatorId));
     }
+  }
+
+  /// Extra environment for a game launch of [emulatorId] (see
+  /// [LinuxEnvironmentStrategy.launchEnvironment]); null when there is none.
+  Map<String, String>? _launchEnvironment(String emulatorId) {
+    final extra = LinuxEnvironmentStrategy.launchEnvironment(
+      emulatorId,
+      io.Platform.environment,
+      nvidiaDriver: io.File('/proc/driver/nvidia/version').existsSync(),
+    );
+    if (extra.isNotEmpty) debugPrint('[Launch] $emulatorId: using ${extra.entries.map((e) => '${e.key}=${e.value}').join(' ')} (NVIDIA + Wayland workaround)');
+    return extra.isEmpty ? null : extra;
   }
 
   @override
@@ -206,7 +220,8 @@ class NativeLinuxStrategy extends LinuxEnvironmentStrategy {
     } else if (exePath.endsWith('.sh')) {
       return await io.Process.start('bash', [exePath, ...args, romPath], mode: io.ProcessStartMode.normal);
     } else {
-      return await io.Process.start(exePath, [...args, romPath], mode: io.ProcessStartMode.normal);
+      return await io.Process.start(exePath, [...args, romPath],
+          mode: io.ProcessStartMode.normal, environment: _launchEnvironment(emulatorId));
     }
   }
 
