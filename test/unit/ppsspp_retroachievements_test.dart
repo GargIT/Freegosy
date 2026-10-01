@@ -114,9 +114,26 @@ void main() {
       expect(await token().readAsString(), 'new-token');
     });
 
-    test('does nothing before PPSSPP has run (no ppsspp.ini)', () async {
+    test('signs in on the very first launch: with no ppsspp.ini yet it makes one with just the login', () async {
       await (await build()).applyRetroAchievementsLogin(login);
-      expect(await io.Directory(system()).exists(), isFalse);
+
+      final config = IniFile(await ini().readAsString());
+      expect(config.get('Achievements', 'AchievementsEnable'), 'True');
+      expect(config.get('Achievements', 'AchievementsUserName'), 'Player');
+      expect(await token().readAsString(), 'tok-123');
+    });
+
+    test('an existing ppsspp.ini in a later candidate folder is used rather than making a new one', () async {
+      final exe = p.join(home.path, 'PPSSPP', 'PPSSPPWindows64.exe');
+      final strategy = await build(exe: exe, platform: PlatformInfo('windows', environment: {'USERPROFILE': home.path}));
+      final docs = p.join(home.path, 'Documents', 'PPSSPP', 'PSP', 'SYSTEM');
+      await io.Directory(docs).create(recursive: true);
+      await io.File(p.join(docs, 'ppsspp.ini')).writeAsString(_iniBefore);
+
+      await strategy.applyRetroAchievementsLogin(login);
+
+      expect(IniFile(await io.File(p.join(docs, 'ppsspp.ini')).readAsString()).get('Achievements', 'AchievementsUserName'), 'Player');
+      expect(await io.Directory(p.join(home.path, 'PPSSPP', 'memstick')).exists(), isFalse);
     });
   });
 

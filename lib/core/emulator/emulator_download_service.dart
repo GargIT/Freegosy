@@ -25,10 +25,19 @@ class EmulatorDownloadService {
     _releaseService = ReleaseService(_dio);
   }
 
+  /// How [definition] is downloaded on [platform]: its `type`, unless it has a
+  /// `linux_type` and this is Linux (Dolphin: its site has only a Flatpak
+  /// bundle for Linux, so Linux downloads an AppImage from GitHub instead).
+  @visibleForTesting
+  static String typeFor(Map<String, dynamic> definition, PlatformInfo platform, {required String fallback}) {
+    final linuxType = platform.isLinux ? definition['linux_type'] as String? : null;
+    return linuxType ?? definition['type'] as String? ?? fallback;
+  }
+
   Future<List<Map<String, String>>> getLatestAssetsForEmulator(String emulatorId) async {
     final definition = kEmulatorDefinitions.firstWhere((d) => d['id'] == emulatorId);
     final repo = definition['github_repo'] as String? ?? definition['gitea_repo'] as String? ?? '';
-    final type = definition['type'] as String? ?? 'github';
+    final type = typeFor(definition, _platform, fallback: 'github');
     final platform = type == 'github' || type == 'github_multi' ? ReleasePlatform.github : (type == 'dolphin' ? ReleasePlatform.dolphin : ReleasePlatform.gitea);
     
     String requiredKey;
@@ -37,6 +46,10 @@ class EmulatorDownloadService {
     if (type == 'gitea') {
       requiredKey = _platform.isWindows ? 'gitea_asset_required_windows' : 'gitea_asset_required_linux';
       excludedKey = 'gitea_asset_excluded';
+    } else if (type == 'dolphin') {
+      // Dolphin's site download is filtered by its own `asset_required_<os>` keys.
+      requiredKey = 'asset_required_${_platform.isWindows ? 'windows' : (_platform.isMacOS ? 'macos' : 'linux')}';
+      excludedKey = 'asset_excluded';
     } else {
       requiredKey = _platform.isWindows ? 'github_asset_required_windows' : 'github_asset_required_linux';
       excludedKey = 'github_asset_excluded';
@@ -124,7 +137,7 @@ class EmulatorDownloadService {
     }
 
     final String emulatorName = definition['name'] as String? ?? emulatorId;
-    final String type = definition['type'] as String? ?? 'direct';
+    final String type = typeFor(definition, _platform, fallback: 'direct');
 
     yield DownloadProgress(
       id: emulatorId,

@@ -82,13 +82,16 @@ class PPSSPPStrategy extends EmulatorStrategy {
     return result;
   }
 
-  /// The first candidate folder where PPSSPP has already made its ppsspp.ini,
-  /// or null (PPSSPP has not run yet, or its folder isn't one we know).
-  Future<String?> _systemDirectory() async {
-    for (final dir in await candidateSystemDirectories()) {
+  /// The first candidate folder where PPSSPP has already made its ppsspp.ini.
+  /// With [createIfMissing], and PPSSPP not having run yet, the first
+  /// candidate: PPSSPP takes a partial ppsspp.ini and fills in the defaults
+  /// for everything missing, so the first launch can already be signed in.
+  Future<String?> _systemDirectory({bool createIfMissing = false}) async {
+    final candidates = await candidateSystemDirectories();
+    for (final dir in candidates) {
       if (await io.File(p.join(dir, 'ppsspp.ini')).exists()) return dir;
     }
-    return null;
+    return createIfMissing && candidates.isNotEmpty ? candidates.first : null;
   }
 
   /// Signs PPSSPP in before it starts. Never fails a launch.
@@ -106,17 +109,17 @@ class PPSSPPStrategy extends EmulatorStrategy {
   /// files: `AchievementsEnable`, `AchievementsUserName` and
   /// `AchievementsChallengeMode` (hardcore, off unless turned on in Settings)
   /// in ppsspp.ini's `[Achievements]`, and the token in its own file beside
-  /// it. Only differing lines change, ppsspp.ini is copied to
-  /// `ppsspp.ini.freegosy.bak` first (once), and nothing is written before
-  /// PPSSPP has run once.
+  /// it. Only differing lines change, and an existing ppsspp.ini is copied to
+  /// `ppsspp.ini.freegosy.bak` first (once).
   @override
   Future<void> applyRetroAchievementsLogin(RetroAchievementsEmulatorLogin login) async {
     try {
-      final dir = await _systemDirectory();
+      final dir = await _systemDirectory(createIfMissing: true);
       if (dir == null) {
-        debugPrint('[PPSSPP] RetroAchievements login not applied: no ppsspp.ini found (has PPSSPP been run?)');
+        debugPrint('[PPSSPP] RetroAchievements login not applied: PPSSPP\'s settings folder is not known here');
         return;
       }
+      await io.Directory(dir).create(recursive: true);
       await _writeToken(io.File(p.join(dir, _tokenFileName)), login.token);
       await updateIniFile(io.File(p.join(dir, 'ppsspp.ini')), (config) {
         var changed = false;
@@ -124,7 +127,7 @@ class PPSSPPStrategy extends EmulatorStrategy {
         changed |= config.set(_raSection, 'AchievementsUserName', login.username);
         changed |= config.set(_raSection, 'AchievementsChallengeMode', (login.hardcore ?? false) ? 'True' : 'False');
         return changed;
-      }, backup: true);
+      }, backup: true, create: true);
     } catch (e) {
       debugPrint('[PPSSPP] Could not apply the RetroAchievements login: $e');
     }
