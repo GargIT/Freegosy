@@ -247,6 +247,17 @@ void main() {
     test('returns null for empty string', () {
       expect(SDLMappingParser.getMapping(''), isNull);
     });
+
+    // A controller whose name never arrived (Settings: "No controllers
+    // detected") must get the default mapping, not the database's first
+    // entry: those use button_0-style keys, which Windows' GameInput never
+    // sends, so every button went dead while the sticks still worked.
+    test('returns null for empty string with the database loaded', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      await SDLMappingParser.loadDatabase();
+      expect(SDLMappingParser.getMapping('Xbox 360 Controller'), isNotNull, reason: 'the database did load');
+      expect(SDLMappingParser.getMapping(''), isNull);
+    });
   });
 
   // =========================================================================

@@ -46,7 +46,9 @@ class SDLMappingParser {
   }
 
   static Map<String, GameAction>? getMapping(String name) {
-    final lower = name.toLowerCase();
+    final lower = name.trim().toLowerCase();
+    // No name, no match: every database entry "contains" the empty string.
+    if (lower.isEmpty) return null;
 
     // 1. Exact match
     if (_cache.containsKey(lower)) return _cache[lower];

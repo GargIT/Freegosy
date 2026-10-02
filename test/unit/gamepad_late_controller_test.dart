@@ -1,0 +1,68 @@
+import 'dart:async';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:freegosy/core/input/gamepad_service.dart';
+import 'package:freegosy/core/input/input_action_bus.dart';
+import 'package:gamepads_platform_interface/api/gamepad_controller.dart';
+import 'package:gamepads_platform_interface/api/gamepad_event.dart';
+import 'package:gamepads_platform_interface/gamepads_platform_interface.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// Windows' GameInput: the start-up scan can run before the pad is listed,
+/// and the pad's display name can be empty.
+class _FakeGamepads extends GamepadsPlatformInterface {
+  final events = StreamController<GamepadEvent>.broadcast();
+  List<(String, String)> pads = [];
+
+  @override
+  Future<List<GamepadController>> listGamepads() async =>
+      [for (final (id, name) in pads) GamepadController(id: id, name: name, plugin: this)];
+
+  @override
+  Stream<GamepadEvent> get gamepadEventsStream => events.stream;
+}
+
+GamepadEvent _button(String key, double value) =>
+    GamepadEvent(gamepadId: 'pad1', timestamp: 0, type: KeyType.button, key: key, value: value);
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  // The gamepads package keeps the platform it first saw, so one fake for all.
+  final fake = _FakeGamepads();
+  GamepadsPlatformInterface.instance = fake;
+  late ProviderContainer container;
+  late GamepadService service;
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    fake.pads = [];
+    container = ProviderContainer();
+    service = container.read(gamepadServiceProvider);
+    // Let initialize() load its mappings and the SDL database, and scan.
+    await pumpEventQueue(times: 50);
+  });
+
+  tearDown(() => container.dispose());
+
+  test('A on a pad with no name is confirm (8BitDo Pro 2 in X mode)', () async {
+    fake.pads = [('pad1', '')];
+    final actions = <GameAction>[];
+    final sub = inputActionBus.stream.listen(actions.add);
+    fake.events.add(_button('a', 1));
+    fake.events.add(_button('a', 0));
+    await pumpEventQueue();
+    await sub.cancel();
+    expect(actions, contains(GameAction.confirm));
+  });
+
+  test('a pad the start-up scan missed is listed once it sends input', () async {
+    expect(service.getDetectedControllers(), isEmpty);
+    fake.pads = [('pad1', '8BitDo Pro 2')];
+    fake.events.add(_button('a', 1));
+    fake.events.add(_button('a', 0));
+    await pumpEventQueue();
+    expect(service.getDetectedControllers().map((c) => c['name']), ['8BitDo Pro 2']);
+  });
+}

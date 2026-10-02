@@ -96,6 +96,19 @@ class GamepadService extends WidgetsBindingObserver {
     debugPrint('[Controller] app focus changed: $_appHasFocus');
   }
 
+  /// Input from a controller the last scan didn't list: on Windows the
+  /// start-up scan can run before GameInput has listed the pad, so look again
+  /// (at most every 2 s, in case the plugin never lists it).
+  DateTime? _lastUnknownScan;
+  void _scanForUnknown(String gamepadId) {
+    if (_controllerNames.containsKey(gamepadId)) return;
+    final now = DateTime.now();
+    if (_lastUnknownScan != null && now.difference(_lastUnknownScan!) < const Duration(seconds: 2)) return;
+    _lastUnknownScan = now;
+    debugPrint('[Controller] input from unlisted controller $gamepadId — rescanning');
+    _scan();
+  }
+
   void _scan() async {
     try {
       final controllers = await Gamepads.list();
@@ -363,6 +376,7 @@ class GamepadService extends WidgetsBindingObserver {
     // Broadcast raw event for sniffing/configuration dialogs (always allow, for setup dialogs)
     if (_rawEventController.isClosed) return;
     _rawEventController.add(event);
+    _scanForUnknown(event.gamepadId);
 
     // If app is not focused, skip input processing but allow raw event broadcasting
     if (!_appHasFocus) return;
