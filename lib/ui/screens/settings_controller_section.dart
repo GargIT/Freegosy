@@ -250,7 +250,8 @@ class _SettingsControllerSectionState
                     itemBuilder: (ctx, index) {
                       final c = _controllers[index];
                       final id = c['id'] ?? '?';
-                      final name = c['name'] ?? 'Unknown Controller';
+                      // GameInput can report an empty name (e.g. 8BitDo in X mode).
+                      final name = (c['name'] ?? '').isEmpty ? 'Unknown Controller' : c['name']!;
                       final status = _mappingStatus(id);
                       final mapped = _isMapped(id);
 
