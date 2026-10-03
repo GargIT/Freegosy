@@ -9,6 +9,9 @@ import 'package:freegosy/core/romm/romm_models.dart';
 import 'package:freegosy/core/romm/romm_service.dart';
 import 'package:freegosy/core/emulator/strategy_registry.dart';
 import 'package:freegosy/core/save/save_strategy.dart';
+import 'package:freegosy/core/save/backup_repository.dart';
+import 'package:freegosy/core/save/catalog/save_catalog_sources.dart';
+import 'package:freegosy/core/emulator/emulator_strategy.dart';
 import 'package:freegosy/core/save/romm_content_hash.dart';
 import 'package:freegosy/core/save/save_sync_service.dart';
 import 'package:freegosy/core/save/strategies/retroarch_save_strategy.dart';
@@ -1365,6 +1368,29 @@ void main() {
         expect(await sync.saveFingerprint(n64Game(), romPath(), emulatorId: 'retroarch'), own);
       });
 
+      for (final sorted in [true, false]) {
+        test('the save list has each RetroArch core\'s own save (sorted by core: $sorted)', () async {
+          await File(p.join(tempDir.path, '.config', 'retroarch', 'retroarch.cfg'))
+              .writeAsString('savefile_directory = "$retroarchSaves"\nsort_savefiles_enable = "$sorted"\n');
+          for (final (folder, seed) in [('Mupen64Plus-Next', 1), ('ParaLLEl N64', 2)]) {
+            final dir = Directory(sorted ? p.join(retroarchSaves, folder) : retroarchSaves)..createSync(recursive: true);
+            File(p.join(dir.path, '$romName.srm')).writeAsBytesSync(blankSrm()..setRange(0, 512, pattern(512, seed)));
+          }
+          when(mockStrategyRegistry.getAllStrategiesForSlug('n64')).thenReturn([_Emulator('retroarch')]);
+          final sources = LiveSaveCatalogSources(
+              sync: sync,
+              registry: mockStrategyRegistry,
+              backupRepository: BackupRepository(),
+              rommService: null,
+              installed: const {'retroarch': true});
+
+          final rows = await sources.localSaves(n64Game(), romPath());
+
+          expect(rows.map((r) => r.maker?.tag).toList(),
+              sorted ? ['mupen64plus_next', 'parallel_n64'] : [rows.single.maker?.tag]);
+        });
+      }
+
       test('a save counts as synced only while it is the content RomM has, per sync mode', () async {
         await Directory(aresSaves()).create(recursive: true);
         final f = File(p.join(aresSaves(), '$romName.eeprom'))..writeAsBytesSync(pattern(512, 1));
@@ -1474,4 +1500,11 @@ class _OneStrategySync extends SaveSyncService {
   final SaveStrategy strategy;
   @override
   SaveStrategy? getStrategyForGame(Game game, {String? emulatorId}) => strategy;
+}
+
+/// An emulator the registry lists for a platform: only its id is read.
+class _Emulator extends Fake implements EmulatorStrategy {
+  _Emulator(this.emulatorId);
+  @override
+  final String emulatorId;
 }
