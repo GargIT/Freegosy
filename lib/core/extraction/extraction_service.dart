@@ -32,12 +32,13 @@ class ExtractionService {
     final percent = RegExp(r'(\d{1,3})%');
     var last = -1;
     final stdoutDone = process.stdout.transform(const Utf8Decoder(allowMalformed: true)).forEach((chunk) {
-      final matches = percent.allMatches(chunk);
-      if (matches.isEmpty) return;
-      final value = int.parse(matches.last.group(1)!).clamp(0, 100);
-      if (value != last) {
-        last = value;
-        onProgress?.call(value / 100);
+      // A chunk can carry several updates, so report each distinct one.
+      for (final match in percent.allMatches(chunk)) {
+        final value = int.parse(match.group(1)!).clamp(0, 100);
+        if (value != last) {
+          last = value;
+          onProgress?.call(value / 100);
+        }
       }
     });
     final stderrBuffer = StringBuffer();
