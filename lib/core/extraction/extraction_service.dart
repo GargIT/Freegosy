@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
@@ -19,7 +20,37 @@ class ExtractionService {
   ExtractionService(this.directoryService, {PlatformInfo? platform})
       : _platform = platform ?? PlatformInfo.current;
 
-  Future<void> extract(String archivePath, String destDir) async {
+  /// Runs an extractor that prints `NN%` as it works (7-Zip with `-bsp1`,
+  /// UnRAR) and reports it through [onProgress] as a 0..1 fraction. Returns
+  /// the exit code and stderr.
+  Future<({int exitCode, String stderr})> _runWithProgress(
+    String exe,
+    List<String> args,
+    void Function(double fraction)? onProgress,
+  ) async {
+    final process = await Process.start(exe, args, runInShell: false);
+    final percent = RegExp(r'(\d{1,3})%');
+    var last = -1;
+    final stdoutDone = process.stdout.transform(const Utf8Decoder(allowMalformed: true)).forEach((chunk) {
+      final matches = percent.allMatches(chunk);
+      if (matches.isEmpty) return;
+      final value = int.parse(matches.last.group(1)!).clamp(0, 100);
+      if (value != last) {
+        last = value;
+        onProgress?.call(value / 100);
+      }
+    });
+    final stderrBuffer = StringBuffer();
+    final stderrDone = process.stderr.transform(const Utf8Decoder(allowMalformed: true)).forEach(stderrBuffer.write);
+    final exitCode = await process.exitCode;
+    await Future.wait([stdoutDone, stderrDone]);
+    return (exitCode: exitCode, stderr: stderrBuffer.toString());
+  }
+
+  /// Unpacks [archivePath] into [destDir]. [onProgress] gets a 0..1 fraction
+  /// for formats whose extractor reports one (7z, RAR); for the rest the
+  /// caller should show an indeterminate bar.
+  Future<void> extract(String archivePath, String destDir, {void Function(double fraction)? onProgress}) async {
     final pathLower = archivePath.toLowerCase();
 
     try {
@@ -31,9 +62,9 @@ class ExtractionService {
       } else if (pathLower.endsWith('.zip')) {
         await _handleZip(archivePath, destDir);
       } else if (pathLower.endsWith('.7z')) {
-        await _handleSevenZip(archivePath, destDir);
+        await _handleSevenZip(archivePath, destDir, onProgress);
       } else if (pathLower.endsWith('.rar')) {
-        await _handleRar(archivePath, destDir);
+        await _handleRar(archivePath, destDir, onProgress);
       } else if (pathLower.endsWith('.exe') && !_platform.isLinux) {
         await _handleExe(archivePath, destDir);
       } else if (pathLower.endsWith('.appimage') || pathLower.endsWith('.flatpak')) {
@@ -177,15 +208,15 @@ class ExtractionService {
     }
   }
 
-  Future<void> _handleSevenZip(String archivePath, String destDir) async {
+  Future<void> _handleSevenZip(String archivePath, String destDir, [void Function(double)? onProgress]) async {
     final sevenZipExe = await directoryService.resolveSevenZipPath();
     if (sevenZipExe == null) {
       throw Exception('7zr.exe could not be initialized. Try reinstalling Freegosy.');
     }
-    final result = await Process.run(
+    final result = await _runWithProgress(
       sevenZipExe,
-      ['x', archivePath, '-o$destDir', '-y'],
-      runInShell: false,
+      ['x', archivePath, '-o$destDir', '-y', '-bsp1'],
+      onProgress,
     );
     if (result.exitCode != 0) {
       throw Exception('7z extraction failed: ${result.stderr}');
@@ -207,7 +238,7 @@ class ExtractionService {
     };
     final tools = <({String exe, List<String> args})>[];
     for (final root in roots) {
-      tools.add((exe: p.join(root, '7-Zip', '7z.exe'), args: ['x', archivePath, '-o$destDir', '-y']));
+      tools.add((exe: p.join(root, '7-Zip', '7z.exe'), args: ['x', archivePath, '-o$destDir', '-y', '-bsp1']));
     }
     for (final root in roots) {
       // UnRAR takes the destination as a trailing folder, with a separator.
@@ -220,15 +251,15 @@ class ExtractionService {
   /// only `7zr`, which doesn't, so it tries an installed 7-Zip or WinRAR, then
   /// the `tar` built into Windows 10/11 (libarchive reads most RAR files, RAR5
   /// from newer builds), and says what to install if none can.
-  Future<void> _handleRar(String archivePath, String destDir) async {
+  Future<void> _handleRar(String archivePath, String destDir, [void Function(double)? onProgress]) async {
     if (!_platform.isWindows) {
-      await _handleSevenZip(archivePath, destDir);
+      await _handleSevenZip(archivePath, destDir, onProgress);
       return;
     }
     final failures = <String>[];
     for (final tool in await _windowsRarTools(archivePath, destDir)) {
       try {
-        final result = await Process.run(tool.exe, tool.args, runInShell: false);
+        final result = await _runWithProgress(tool.exe, tool.args, onProgress);
         if (result.exitCode == 0) return;
         failures.add('${p.basename(tool.exe)}: ${result.stderr}'.trim());
       } catch (e) {

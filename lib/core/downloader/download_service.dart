@@ -20,6 +20,9 @@ class DownloadProgress {
   final Game? game;
   final String? downloadUrl;
 
+  /// Whether this is the unpacking phase that follows the download.
+  bool get isExtracting => status.startsWith('Extracting');
+
   DownloadProgress({
     required this.id,
     required this.gameName,
@@ -321,13 +324,17 @@ class DownloadService {
 
         if (shouldExtract) {
           final extension = currentPath.split('.').last.toLowerCase();
-          yield DownloadProgress(
-            id: game.id,
-            gameName: game.name,
-            percent: 1.0,
-            status: 'Extracting ($extension)...',
-          );
-          await _extractMultiFile(game, currentPath);
+          final extractStatus = 'Extracting ($extension)...';
+          // Restart the bar for the unpacking phase; 0 shows as indeterminate
+          // until the extractor reports a percentage.
+          yield DownloadProgress(id: game.id, gameName: game.name, status: extractStatus);
+          final fractions = StreamController<double>();
+          final extraction = _extractMultiFile(game, currentPath, onProgress: fractions.add)
+              .whenComplete(fractions.close);
+          await for (final fraction in fractions.stream) {
+            yield DownloadProgress(id: game.id, gameName: game.name, percent: fraction, status: extractStatus);
+          }
+          await extraction;
         }
         
         yield DownloadProgress(
@@ -364,7 +371,7 @@ class DownloadService {
 
   /// Extracts a multi-file zip into a folder named after the game,
   /// then deletes the zip. Finds the main ROM by largest file size.
-  Future<void> _extractMultiFile(Game game, String zipPath) async {
+  Future<void> _extractMultiFile(Game game, String zipPath, {void Function(double fraction)? onProgress}) async {
     final romDir = await directoryService.getRomDirectory(game);
     // Sanitize game name for use as folder name - matches DirectoryService sanitization
     final folderName = game.name.replaceAll(RegExp(r'[<>:"/\\|?]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -385,7 +392,7 @@ class DownloadService {
     await Directory(extractDir).create(recursive: true);
 
     try {
-      await extractionService.extract(zipPath, extractDir);
+      await extractionService.extract(zipPath, extractDir, onProgress: onProgress);
       debugPrint('[DownloadService] Extraction complete. Deleting zip.');
       await File(zipPath).delete();
     } catch (e) {
