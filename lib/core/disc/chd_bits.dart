@@ -5,6 +5,8 @@ import 'chd_exception.dart';
 // The bit reader and Huffman decoder CHD v5 uses for its hunk map and its
 // "huff" codec. Ported from libchdr (https://github.com/rtissera/libchdr,
 // BSD-3-Clause): libchdr_bitstream.c and libchdr_huffman.c.
+// Copyright Aaron Giles (MAME). Copyright Romain Tisserand (libchdr).
+// See thirdparty/libchdr_license.txt for the license text.
 
 /// Reads big-endian bit fields from [_data], most significant bit first.
 class ChdBitReader {

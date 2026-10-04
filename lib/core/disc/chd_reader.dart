@@ -17,7 +17,9 @@ Future<Uint8List?> _pluginZstd(Uint8List frame) => Zstandard().decompress(frame)
 
 /// Reads the disc inside a CHD v5 file (MAME's compressed disc image)
 /// without chdman. Ported from libchdr (https://github.com/rtissera/libchdr,
-/// BSD-3-Clause), libchdr_chd.c and its codecs.
+/// BSD-3-Clause), libchdr_chd.c and its codecs. Copyright Aaron Giles
+/// (MAME) and Romain Tisserand (libchdr); the license text is in
+/// thirdparty/libchdr_license.txt.
 ///
 /// A CHD stores its disc in hunks (fixed-size blocks), each compressed with
 /// one of up to four codecs named in the header, or stored as is, or a copy
@@ -230,7 +232,15 @@ class ChdReader {
       case _none:
         data = _offsets[index] == 0 && _codecs[0] == 0 ? Uint8List(hunkBytes) : await _readAt(_offsets[index], hunkBytes);
       case _self:
-        data = await _hunk(_offsets[index]);
+        // chdman only copies earlier hunks; following the chain while it
+        // goes backwards ends, where a crafted loop would not.
+        var source = index;
+        while (_types[source] == _self) {
+          final next = _offsets[source];
+          if (next >= source) throw const ChdException('bad CHD map (a hunk copies itself or a later hunk)');
+          source = next;
+        }
+        data = await _hunk(source);
       case _parent:
         throw const ChdException('this CHD needs its parent CHD');
       default:

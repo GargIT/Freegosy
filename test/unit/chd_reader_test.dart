@@ -105,4 +105,40 @@ void main() {
     final file = File(p.join(dir.path, 'x.chd'))..writeAsBytesSync(List.filled(200, 7));
     expect(ChdReader.open(file.path), throwsA(isA<ChdException>()));
   });
+
+  test('a hunk that copies itself is refused, not followed forever', () async {
+    // One 2048-byte hunk whose map entry says "a copy of hunk 0".
+    final header = ByteData(124)
+      ..setUint32(8, 124)
+      ..setUint32(12, 5) // version
+      ..setUint32(16, 0x7A6C6962) // codec 0: zlib
+      ..setUint64(32, 2048) // disc size: one hunk
+      ..setUint64(40, 124) // map offset
+      ..setUint32(56, 2048) // hunk size
+      ..setUint32(60, 2048); // unit size
+    final bytes = header.buffer.asUint8List()..setAll(0, 'MComprHD'.codeUnits);
+    // The map's kinds tree: 4-bit lengths, 1 bit for kinds 4 (none) and 5
+    // (self), so self is coded as bit 1. Then the one hunk: self, place 0.
+    final mapBits = [0x00, 0x00, 0x11, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00];
+    var crc = 0xFFFF;
+    for (final b in [5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) {
+      crc ^= b << 8;
+      for (var i = 0; i < 8; i++) {
+        crc = (crc & 0x8000) != 0 ? (crc << 1 ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+      }
+    }
+    final mapHeader = ByteData(16)
+      ..setUint32(0, mapBits.length)
+      ..setUint16(10, crc)
+      ..setUint8(12, 24) // length bits
+      ..setUint8(13, 8); // self bits
+    final dir = await Directory.systemTemp.createTemp('chd_reader_');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = File(p.join(dir.path, 'loop.chd'))
+      ..writeAsBytesSync([...bytes, ...mapHeader.buffer.asUint8List(), ...mapBits]);
+
+    final chd = await ChdReader.open(file.path);
+    addTearDown(chd.close);
+    await expectLater(chd.read(0, 16), throwsA(isA<ChdException>()));
+  });
 }
