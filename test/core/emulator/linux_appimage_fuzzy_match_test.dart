@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:freegosy/core/emulator/linux_strategies/native_linux_strategy.dart';
+import '../../helpers/same_path.dart';
 
 void main() {
   group('NativeLinuxStrategy - versioned AppImage names in emulators root', () {
@@ -31,27 +32,27 @@ void main() {
 
     test('matches versioned name in the per-emulator folder', () async {
       final expected = await touch('duckstation/DuckStation-x64.AppImage');
-      expect(await strategy.findExecutable('duckstation', 'DuckStation.AppImage', root.path, null), expected);
+      expect(await strategy.findExecutable('duckstation', 'DuckStation.AppImage', root.path, null), samePath(expected));
     });
 
     test('finds an AppImage in the subfolder its release archive extracted to', () async {
       final expected = await touch('retroarch/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage');
       await io.Directory(p.join(root.path, 'retroarch', 'RetroArch-Linux-x86_64', 'RetroArch-Linux-x86_64.AppImage.home'))
           .create(recursive: true);
-      expect(await strategy.findExecutable('retroarch', 'retroarch', root.path, null), expected);
+      expect(await strategy.findExecutable('retroarch', 'retroarch', root.path, null), samePath(expected));
     });
 
     test('a user-chosen folder is searched for the AppImage, and one subfolder down', () async {
       final nested = await touch('mine/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage');
-      expect(await strategy.findAppImageInFolder(p.join(root.path, 'mine'), 'retroarch', 'retroarch'), nested);
-      expect(await strategy.findAppImageInFolder(p.join(root.path, 'mine', 'RetroArch-Linux-x86_64'), 'retroarch', 'retroarch'), nested);
+      expect(await strategy.findAppImageInFolder(p.join(root.path, 'mine'), 'retroarch', 'retroarch'), samePath(nested));
+      expect(await strategy.findAppImageInFolder(p.join(root.path, 'mine', 'RetroArch-Linux-x86_64'), 'retroarch', 'retroarch'), samePath(nested));
     });
 
     test("choosing an AppImage's .home data folder finds the AppImage beside it", () async {
       final appImage = await touch('retroarch/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage');
       final home = p.join(root.path, 'retroarch', 'RetroArch-Linux-x86_64', 'RetroArch-Linux-x86_64.AppImage.home');
       await io.Directory(p.join(home, '.config')).create(recursive: true);
-      expect(await strategy.findAppImageInFolder('$home/', 'retroarch', 'retroarch'), appImage);
+      expect(await strategy.findAppImageInFolder('$home/', 'retroarch', 'retroarch'), samePath(appImage));
     });
 
     test('a user-chosen folder with no matching executable finds nothing', () async {
