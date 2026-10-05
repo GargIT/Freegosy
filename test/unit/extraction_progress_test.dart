@@ -44,6 +44,28 @@ void main() {
       expect(seen, [0.0, 0.25, 0.7, 1.0]);
     }, skip: Platform.isWindows ? 'uses a shell script as the 7-Zip stand-in' : false);
 
+    test('a file name containing a percentage, or an update split across chunks, does not move the bar', () async {
+      final sevenZip = p.join(tempDir.path, '7zz');
+      await File(sevenZip).writeAsString(
+        '#!/bin/sh\n'
+        'printf " 45%% 1 - Disc (50%%).iso\\r"\n'
+        'sleep 0.3\n'
+        'printf " 9"\n'
+        'sleep 0.3\n'
+        'printf "5%% 2 - 100%% Orange Juice.bin\\r"\n'
+        'exit 0\n',
+      );
+      await Process.run('chmod', ['+x', sevenZip]);
+      final archive = p.join(tempDir.path, 'game.rar');
+      await File(archive).writeAsBytes([0]);
+      final service = ExtractionService(_SevenZipDirectoryService(sevenZip), platform: PlatformInfo('macos'));
+      final seen = <double>[];
+
+      await service.extract(archive, tempDir.path, onProgress: seen.add);
+
+      expect(seen, [0.45, 0.95]);
+    }, skip: Platform.isWindows ? 'uses a shell script as the 7-Zip stand-in' : false);
+
     test('a failing extractor still throws with progress enabled', () async {
       final sevenZip = p.join(tempDir.path, '7zz');
       await File(sevenZip).writeAsString('#!/bin/sh\necho boom >&2\nexit 2\n');
@@ -52,7 +74,7 @@ void main() {
       await File(archive).writeAsBytes([0]);
       final service = ExtractionService(_SevenZipDirectoryService(sevenZip), platform: PlatformInfo('macos'));
 
-      expect(
+      await expectLater(
         () => service.extract(archive, tempDir.path, onProgress: (_) {}),
         throwsA(predicate((e) => e.toString().contains('boom'))),
       );

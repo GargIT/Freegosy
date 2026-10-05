@@ -29,18 +29,27 @@ class ExtractionService {
     void Function(double fraction)? onProgress,
   ) async {
     final process = await Process.start(exe, args, runInShell: false);
-    final percent = RegExp(r'(\d{1,3})%');
+    // An update looks like ` 45% 12 - file name` and ends in \r, \n or (UnRAR) backspaces. Only a
+    // percentage at the start of an update counts (a file name can contain
+    // one), and text after the last separator is kept for the next chunk.
+    final percent = RegExp(r'^\s*(\d{1,3})%');
     var last = -1;
-    final stdoutDone = process.stdout.transform(const Utf8Decoder(allowMalformed: true)).forEach((chunk) {
-      // A chunk can carry several updates, so report each distinct one.
-      for (final match in percent.allMatches(chunk)) {
-        final value = int.parse(match.group(1)!).clamp(0, 100);
-        if (value != last) {
-          last = value;
-          onProgress?.call(value / 100);
-        }
+    var pending = '';
+    void handle(String update) {
+      final match = percent.firstMatch(update);
+      if (match == null) return;
+      final value = int.parse(match.group(1)!).clamp(0, 100);
+      if (value != last) {
+        last = value;
+        onProgress?.call(value / 100);
       }
-    });
+    }
+
+    final stdoutDone = process.stdout.transform(const Utf8Decoder(allowMalformed: true)).forEach((chunk) {
+      final parts = (pending + chunk).split(RegExp(r'[\r\n\x08]'));
+      pending = parts.removeLast();
+      parts.forEach(handle);
+    }).then((_) => handle(pending));
     final stderrBuffer = StringBuffer();
     final stderrDone = process.stderr.transform(const Utf8Decoder(allowMalformed: true)).forEach(stderrBuffer.write);
     final exitCode = await process.exitCode;
