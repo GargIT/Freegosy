@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
@@ -58,6 +59,12 @@ SOFTWARE.
 ''',
       ),
     ]);
+  });
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(
+      ['libchdr', 'MAME'],
+      await rootBundle.loadString('thirdparty/libchdr_license.txt'),
+    );
   });
 
   Hive.registerAdapter(BackupEntryAdapter());

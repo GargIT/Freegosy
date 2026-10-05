@@ -128,6 +128,7 @@ flutter:
     - thirdparty/7zz
     - thirdparty/7zz-linux
     - thirdparty/7zip_license.txt
+    - thirdparty/libchdr_license.txt
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
