@@ -11,6 +11,7 @@ import 'package:freegosy/core/storage/directory_service.dart';
 import 'package:freegosy/core/storage/shared_preferences_app_preferences.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../helpers/same_path.dart';
 
 /// A DirectoryService that finds no installed emulator, so a test never needs
 /// the app's emulators folder.
@@ -133,19 +134,19 @@ void main() {
 
     test('savestate_directory with the default per-core folder', () async {
       final dir = await stateDirFor('savestate_directory = "{home}/my_states"\n');
-      expect(dir, p.join(home.path, 'my_states', 'mGBA'));
+      expect(dir, samePath(p.join(home.path, 'my_states', 'mGBA')));
     });
 
     test('sort_savestates_enable = false drops the core folder', () async {
       final dir = await stateDirFor(
           'savestate_directory = "{home}/my_states"\nsort_savestates_enable = "false"\n');
-      expect(dir, p.join(home.path, 'my_states'));
+      expect(dir, samePath(p.join(home.path, 'my_states')));
     });
 
     test('sort_savestates_by_content_enable adds the ROM folder before the core folder', () async {
       final dir = await stateDirFor(
           'savestate_directory = "{home}/my_states"\nsort_savestates_by_content_enable = "true"\n');
-      expect(dir, p.join(home.path, 'my_states', 'gba', 'mGBA'));
+      expect(dir, samePath(p.join(home.path, 'my_states', 'gba', 'mGBA')));
     });
 
     test('with no retroarch.cfg the states folder is inside RetroArch\'s config folder', () async {
@@ -156,7 +157,7 @@ void main() {
     test('the Flatpak\'s retroarch.cfg is read from its own config folder', () async {
       final dir = await stateDirFor('savestate_directory = "~/.var/app/org.libretro.RetroArch/config/retroarch/states"\n'
           'sort_savestates_enable = "true"\n', flatpak: true);
-      expect(dir, p.join(home.path, '.var', 'app', 'org.libretro.RetroArch', 'config', 'retroarch', 'states', 'mGBA'));
+      expect(dir, samePath(p.join(home.path, '.var', 'app', 'org.libretro.RetroArch', 'config', 'retroarch', 'states', 'mGBA')));
     });
 
     test('a portable AppImage keeps its states in <AppImage>.home/.config/retroarch', () async {
@@ -196,7 +197,7 @@ void main() {
           platform: PlatformInfo('linux', environment: {'HOME': home.path}));
 
       expect(await viaLink.stateDirectory(game, p.join(home.path, 'roms', 'gba', 'Pokemon Emerald.gba')),
-          p.join('$exe.home', '.config', 'retroarch', 'states', 'mGBA'));
+          samePath(p.join('$exe.home', '.config', 'retroarch', 'states', 'mGBA')));
     });
 
     test('savestates_in_content_dir puts states next to the ROM', () async {

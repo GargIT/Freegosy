@@ -21,6 +21,11 @@ class _FakeGamepads extends GamepadsPlatformInterface {
 
   @override
   Stream<GamepadEvent> get gamepadEventsStream => events.stream;
+
+  // Listed controllers subscribe here; kept off [events] so its listener is
+  // only GamepadService.
+  @override
+  Stream<GamepadEvent> eventsByGamepad(String gamepadId) => const Stream.empty();
 }
 
 GamepadEvent _button(String key, double value) =>
@@ -40,11 +45,21 @@ void main() {
     fake.pads = [];
     container = ProviderContainer();
     service = container.read(gamepadServiceProvider);
-    // Let initialize() load its mappings and the SDL database, and scan.
-    await pumpEventQueue(times: 50);
+    // initialize() loads the SDL database from assets (real I/O, slow on CI)
+    // before it listens; events sent before that are dropped.
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (!fake.events.hasListener) {
+      if (DateTime.now().isAfter(deadline)) fail('GamepadService never listened for events');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    await pumpEventQueue();
   });
 
-  tearDown(() => container.dispose());
+  tearDown(() {
+    // Stop this test's service, or it handles the next test's events.
+    service.dispose();
+    container.dispose();
+  });
 
   test('A on a pad with no name is confirm (8BitDo Pro 2 in X mode)', () async {
     fake.pads = [('pad1', '')];

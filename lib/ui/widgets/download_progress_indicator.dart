@@ -29,7 +29,9 @@ class DownloadProgressIndicator extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                '${progress.status} — ${(progress.percent * 100).toStringAsFixed(1)}%',
+                progress.isExtracting && progress.percent <= 0
+                    ? progress.status
+                    : '${progress.status} — ${(progress.percent * 100).toStringAsFixed(1)}%',
                 style: Theme.of(context).textTheme.bodySmall,
                 overflow: TextOverflow.ellipsis,
               ),

@@ -9,6 +9,7 @@ import 'package:freegosy/core/storage/ini_file.dart';
 import 'package:freegosy/core/storage/shared_preferences_app_preferences.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../helpers/same_path.dart';
 
 class _FixedExeDirectoryService extends DirectoryService {
   _FixedExeDirectoryService(super.prefs, this.exe);
@@ -56,7 +57,7 @@ void main() {
     test('Linux: ~/.config/ppsspp/PSP/SYSTEM, honouring XDG_CONFIG_HOME', () async {
       expect(await (await build()).candidateSystemDirectories(), [system()]);
       final xdg = await build(platform: PlatformInfo('linux', environment: {'HOME': home.path, 'XDG_CONFIG_HOME': '${home.path}/xdg'}));
-      expect(await xdg.candidateSystemDirectories(), [p.join(home.path, 'xdg', 'ppsspp', 'PSP', 'SYSTEM')]);
+      expect(await xdg.candidateSystemDirectories(), [samePath(p.join(home.path, 'xdg', 'ppsspp', 'PSP', 'SYSTEM'))]);
     });
 
     test('the Flatpak comes first', () async {

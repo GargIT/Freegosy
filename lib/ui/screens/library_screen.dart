@@ -154,7 +154,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with LibraryActio
     final config = ref.read(rommConfigProvider).value;
     final baseUrl = config?.baseUrl ?? '';
     final downloads = ref.read(downloadProvider);
-    final isActuallyDownloading = downloads.containsKey(game.id);
+    final isActuallyDownloading = downloads[game.id] != null && !downloads[game.id]!.isComplete;
     final isDownloaded = (ref.read(downloadedGamesCacheProvider)[game.id] ?? false) && !isActuallyDownloading;
 
     await Navigator.push(
@@ -258,7 +258,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with LibraryActio
                 final coverUrl = ref.read(rommServiceProvider)?.resolveCoverUrl(game);
                 final downloadedCache = ref.watch(downloadedGamesCacheProvider);
                 final downloads = ref.watch(downloadProvider);
-                final isActuallyDownloading = downloads.containsKey(game.id);
+                final isActuallyDownloading = downloads[game.id] != null && !downloads[game.id]!.isComplete;
                 final isDownloaded = (downloadedCache[game.id] ?? false) && !isActuallyDownloading;
 
                 return Container(
@@ -508,7 +508,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with LibraryActio
                                       if (index == displayGames.length) return const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()));
                                       final game = displayGames[index];
                                       final coverUrl = ref.read(rommServiceProvider)?.resolveCoverUrl(game);
-                                      final isDownloaded = (downloadedCache[game.id] ?? false) && !ref.watch(downloadProvider).containsKey(game.id);
+                                      final isDownloaded = (downloadedCache[game.id] ?? false) && !(ref.watch(downloadProvider)[game.id]?.isComplete == false);
                                       return FocusEffectWrapper(
                                         focusNode: index == 0 ? _firstContentItemFocusNode : null,
                                         onTap: () => _handleGameTap(context, ref, game),
