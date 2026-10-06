@@ -9,6 +9,7 @@ import 'package:freegosy/core/storage/ini_file.dart';
 import 'package:freegosy/core/storage/shared_preferences_app_preferences.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../helpers/same_path.dart';
 
 class _FixedExeDirectoryService extends DirectoryService {
   _FixedExeDirectoryService(super.prefs, this.exe);
@@ -65,7 +66,7 @@ void main() {
           .candidateConfigDirectories();
       expect(dirs.first, p.join(home.path, 'Dolphin', 'User', 'Config'));
       expect(dirs, contains(p.join(home.path, 'Documents', 'Dolphin Emulator', 'Config')));
-      expect(dirs, contains(p.join(home.path, 'AppData', 'Dolphin Emulator', 'Config')));
+      expect(dirs, anyElement(samePath(p.join(home.path, 'AppData', 'Dolphin Emulator', 'Config'))));
     });
 
     test('an AppImage is not treated as portable', () async {
@@ -143,7 +144,7 @@ void main() {
     test('before its first run, Windows falls back to Documents (if Dolphin\'s folder is there) or APPDATA', () async {
       final env = {'USERPROFILE': home.path, 'APPDATA': '${home.path}/AppData'};
       final noDocs = await build(platform: PlatformInfo('windows', environment: env));
-      expect(await noDocs.preferredConfigDirectory(), p.join(home.path, 'AppData', 'Dolphin Emulator', 'Config'));
+      expect(await noDocs.preferredConfigDirectory(), samePath(p.join(home.path, 'AppData', 'Dolphin Emulator', 'Config')));
       await io.Directory(p.join(home.path, 'Documents', 'Dolphin Emulator')).create(recursive: true);
       expect(await noDocs.preferredConfigDirectory(), p.join(home.path, 'Documents', 'Dolphin Emulator', 'Config'));
     });

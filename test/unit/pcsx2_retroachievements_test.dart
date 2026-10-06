@@ -9,6 +9,7 @@ import 'package:freegosy/core/storage/ini_file.dart';
 import 'package:freegosy/core/storage/shared_preferences_app_preferences.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../helpers/same_path.dart';
 
 /// Answers `findEmulatorExecutable` with a fixed path (or none).
 class _FixedExeDirectoryService extends DirectoryService {
@@ -76,7 +77,7 @@ void main() {
     test('XDG_CONFIG_HOME is honoured', () async {
       final strategy = await build(
           platform: PlatformInfo('linux', environment: {'HOME': home.path, 'XDG_CONFIG_HOME': '${home.path}/xdg'}));
-      expect(await strategy.settingsDirectory(), p.join(home.path, 'xdg', 'PCSX2', 'inis'));
+      expect(await strategy.settingsDirectory(), samePath(p.join(home.path, 'xdg', 'PCSX2', 'inis')));
     });
 
     test('Windows default is Documents/PCSX2/inis', () async {
