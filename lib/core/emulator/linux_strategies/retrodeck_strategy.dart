@@ -59,18 +59,28 @@ class RetroDeckStrategy extends LinuxEnvironmentStrategy {
     return 'retrodeck-flatpak';
   }
 
+  /// `flatpak run net.retrodeck.retrodeck [romPath]`, with `flatpak` found
+  /// by [resolveFlatpak] rather than in the inherited PATH, which lacks
+  /// `/usr/bin` in some sessions (#84).
+  static (String, List<String>) command(String? romPath,
+          {String Function() resolveFlatpak = LinuxEnvironmentStrategy.resolveFlatpakExecutable}) =>
+      (resolveFlatpak(), ['run', 'net.retrodeck.retrodeck', ?romPath]);
+
   @override
   Future<void> launch(Game game, String romPath, String emulatorId, String exePath, {List<String> args = const []}) async {
-    await io.Process.start('flatpak', ['run', 'net.retrodeck.retrodeck', romPath], mode: io.ProcessStartMode.detached);
+    final (exe, cmdArgs) = command(romPath);
+    await io.Process.start(exe, cmdArgs, mode: io.ProcessStartMode.detached);
   }
 
   @override
   Future<io.Process?> launchWithHandle(Game game, String romPath, String emulatorId, String exePath, {List<String> args = const []}) async {
-    return await io.Process.start('flatpak', ['run', 'net.retrodeck.retrodeck', romPath], mode: io.ProcessStartMode.normal);
+    final (exe, cmdArgs) = command(romPath);
+    return await io.Process.start(exe, cmdArgs, mode: io.ProcessStartMode.normal);
   }
 
   @override
   Future<void> launchStandalone(String emulatorId, String exePath, {List<String> args = const []}) async {
-    await io.Process.start('flatpak', ['run', 'net.retrodeck.retrodeck'], mode: io.ProcessStartMode.detached);
+    final (exe, cmdArgs) = command(null);
+    await io.Process.start(exe, cmdArgs, mode: io.ProcessStartMode.detached);
   }
 }

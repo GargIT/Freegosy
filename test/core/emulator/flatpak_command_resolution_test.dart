@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:freegosy/core/emulator/linux_strategies/linux_environment_strategy.dart';
+import 'package:freegosy/core/emulator/linux_strategies/retrodeck_strategy.dart';
 
 void main() {
   group('resolveFlatpakExecutable', () {
@@ -80,6 +81,19 @@ void main() {
       for (final exe in ['flatpak-spawn', '/usr/bin/flatpak-builder', '/usr/bin/flatpak.sh', '']) {
         expect(LinuxEnvironmentStrategy.isFlatpakExecutable(exe), isFalse, reason: exe);
       }
+    });
+  });
+  group('RetroDECK launch command', () {
+    test('runs the resolved flatpak, not the bare name from PATH', () {
+      final (exe, args) = RetroDeckStrategy.command('/roms/snes/game.sfc', resolveFlatpak: () => '/usr/bin/flatpak');
+      expect(exe, '/usr/bin/flatpak');
+      expect(args, ['run', 'net.retrodeck.retrodeck', '/roms/snes/game.sfc']);
+    });
+
+    test('without a ROM it just starts RetroDECK', () {
+      final (exe, args) = RetroDeckStrategy.command(null, resolveFlatpak: () => '/bin/flatpak');
+      expect(exe, '/bin/flatpak');
+      expect(args, ['run', 'net.retrodeck.retrodeck']);
     });
   });
 }
