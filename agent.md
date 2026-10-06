@@ -18,6 +18,7 @@ Freegosy is a cross-platform Flutter app for browsing a RomM library, downloadin
 - Use `PlatformInfo` for cross-platform abstraction (file: `core/platform/platform_info.dart`). Accept it as a constructor parameter, never use `dart:io Platform` directly in services.
 - ROM name sanitization: `!` must be included in the sanitization regex across all services (`extraction_service`, `directory_service`, `rom_lookup_service`) for consistent folder naming.
 - Windows games are folder-based: `findMainRomInFolder()` returns the folder path for `windows`/`pc`/`win` slugs, not a file.
+- A save strategy that needs a game id (serial, title id) takes RomM's `Game.titleId`/`saveTarget` through `GameIdResolver` before reading the ROM itself; with RomM's id it never opens the disc.
 
 ## File Map
 
@@ -35,6 +36,8 @@ Freegosy is a cross-platform Flutter app for browsing a RomM library, downloadin
 ### Core — RomM
 - `lib/core/romm/romm_service.dart` — All RomM HTTP calls (Dio). Methods: getPlatforms(), getGames(), getAllGames(), getGamesPage(offset, limit, platformId, search), getSaves(), uploadSave(), getLatestSave(), downloadSave(), pruneOldSaves(), getRecentlyPlayed(), getRandomGame(), updateRomProps(), refreshToken(), fetchToken(). Includes silent re-authentication interceptor. Upload uses slot `'freegosy'` (not timestamped), `autocleanup: true`, `autocleanupLimit: 5`, `overwrite: 'force'`.
 - `lib/core/romm/romm_models.dart` — Data models: Game, Platform (with fsSlug, displayName, gamesCount and flexible parsing), SaveFile, RomMConfig.
+- `lib/core/romm/save_target_layout.dart` — `SaveTargetLayout`: how RomM's `save_target` is laid out on disk (`folder-exact`, `folder-prefix`, `file-exact`, `file-prefix`, `folder-split` as the API sends them; the database names `FOLDER_PREFIX` etc. are read too). `Game.titleId` / `saveTarget` / `saveTargetLayout` come from RomM 5.3+ (`title_id`, `save_target`, `save_target_layout`; read from the ROM by argosy-sigil on the server), null on older servers.
+- `lib/core/romm/game_id_resolver.dart` — `GameIdResolver`: RomM's game id before a strategy's own ROM reader; logs `[GameId] <label>: server|local|none`.
 - `lib/core/romm/rom_constants.dart` — Platform slug-to-extension mappings. Windows/PC/Win slugs have empty extension lists (folder-based platforms). PSX/PS2 include `.chd`.
 
 Also in `lib/core/romm/`:

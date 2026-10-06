@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../disc/serial_extraction_service.dart';
 import '../../platform/platform_info.dart';
+import '../../romm/game_id_resolver.dart';
 import '../../romm/romm_models.dart';
 import '../../storage/app_preferences.dart';
 import '../../storage/directory_service.dart';
@@ -489,17 +490,18 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
     return (cards: [io.File(p.join(saveDir, '${p.basenameWithoutExtension(romPath)}.ps2'))], shared: false);
   }
 
-  Future<String?> _ps2Serial(String romPath) async {
-    if (ps2SerialOverride != null) return ps2SerialOverride!(romPath);
-    return _serials?.extractSerial(
-        romPath: romPath, bootLinePattern: Pcsx2SaveStrategy.bootLinePattern, chdmanCandidates: const []);
-  }
+  Future<String?> _ps2Serial(Game game, String romPath) => GameIdResolver.resolve(
+      label: 'LRPS2 ${game.name}',
+      server: GameIdResolver.discSerial(game, romPath),
+      shape: GameIdResolver.ps1ps2Serial,
+      local: () async => ps2SerialOverride != null ? ps2SerialOverride!(romPath) : _serials?.extractSerial(
+          romPath: romPath, bootLinePattern: Pcsx2SaveStrategy.bootLinePattern, chdmanCandidates: const []));
 
   /// Which saves on LRPS2's cards are [romPath]'s: those named after its
   /// serial; every save on a per-game card when the serial is unknown. Null
   /// when it can't be told (shared cards, serial unknown).
-  Future<bool Function(String)?> _lrps2SavesOf(String romPath, bool shared) async {
-    final serial = await _ps2Serial(romPath);
+  Future<bool Function(String)?> _lrps2SavesOf(Game game, String romPath, bool shared) async {
+    final serial = await _ps2Serial(game, romPath);
     if (serial != null) return (name) => Ps2SaveFolders.isSaveOf(name, serial);
     return shared ? null : (_) => true;
   }
@@ -524,7 +526,7 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
       }
       if (!changed) return const [];
     }
-    final belongs = await _lrps2SavesOf(romPath, setup.shared);
+    final belongs = await _lrps2SavesOf(game, romPath, setup.shared);
     if (belongs == null) {
       debugPrint("[SaveSync] [retroarch] LRPS2: serial unknown — can't tell this game's saves on the shared cards");
       return const [];
@@ -571,7 +573,7 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
           "The PS2 memory card from RomM ($filename) isn't one Freegosy can read ($e). Nothing was changed.");
     }
     final setup = await _lrps2Cards(game, romPath);
-    final belongs = await _lrps2SavesOf(romPath, setup.shared);
+    final belongs = await _lrps2SavesOf(game, romPath, setup.shared);
     if (belongs == null) throw SaveSyncNotPossibleException(_lrps2NoSerial);
     final mine = incoming.where((s) => belongs(s.name)).toList();
     if (mine.isEmpty) {
@@ -630,7 +632,7 @@ class RetroArchSaveStrategy extends SaveStrategy with StateSyncCapable {
     if (!_isLrps2(slug)) return null;
     try {
       final setup = await _lrps2Cards(game, romPath);
-      return await _lrps2SavesOf(romPath, setup.shared) == null ? _lrps2NoSerial : null;
+      return await _lrps2SavesOf(game, romPath, setup.shared) == null ? _lrps2NoSerial : null;
     } catch (e) {
       debugPrint('[SaveSync] [retroarch] LRPS2: cannot tell whether saves can be synced: $e');
       return null;

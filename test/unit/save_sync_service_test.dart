@@ -466,7 +466,7 @@ void main() {
           await tempDir.delete(recursive: true);
         });
 
-        test('the bundle\'s contentHash is still md5 of each sorted name then its bytes (streamed) ($label)', () async {
+        test('a Windows bundle carries only its savePath, and RomM\'s hash covers it ($label)', () async {
           when(mockRommService.fetchCapabilities()).thenAnswer((_) async => capabilities);
           final tempDir = await Directory.systemTemp.createTemp('romm_hash_meta');
           final saveDir = Directory(p.join(tempDir.path, 'Data'))..createSync();
@@ -475,13 +475,12 @@ void main() {
           final game = Game(id: 'h6_$label', name: 'MyGame', platformSlug: 'windows', fileSize: 0);
           await service.windowsSaveStrategy.setManualOverride(game.id, saveDir.path);
 
+          final local = await service.rommHashOfLocal(game, tempDir.path, emulatorId: 'windows_native');
           await service.pushSaves(game, tempDir.path, emulatorId: 'windows_native');
           final meta = ZipDecoder().decodeBytes(uploaded!).findFile('freegosy_sync.txt')!;
-          final expected = md5.convert([
-            ...utf8.encode('Data/a.sav'), ...utf8.encode('a' * 150),
-            ...utf8.encode('Data/b.sav'), ...utf8.encode('b' * 150),
-          ]).toString();
-          expect(jsonDecode(utf8.decode(meta.content))['contentHash'], expected);
+          final json = jsonDecode(utf8.decode(meta.content)) as Map<String, dynamic>;
+          expect(json.keys, ['savePath']);
+          expect(local, rommHashOfUpload(uploaded!));
           await tempDir.delete(recursive: true);
         });
 
@@ -865,21 +864,20 @@ void main() {
       await tempDir.delete(recursive: true);
     });
 
-    test('bundle metadata contains a contentHash, not a timeStamp', () async {
+    test('a bundle is a plain zip: no freegosy_sync.txt, and RomM\'s hash is the local one', () async {
       final tempDir = await setUpPcsx2Fixture('SAVE_DATA_V1');
       final romPath = p.join(tempDir.path, 'Ico (SLUS-12345).iso');
       Uint8List? uploadedBytes;
       stubUpload((file) async => uploadedBytes = await file.readAsBytes());
 
+      final local = await service.rommHashOfLocal(pcsx2Game(), romPath, emulatorId: 'pcsx2');
       final ok = await service.pushSaves(pcsx2Game(), romPath);
 
       expect(ok, isTrue);
-      expect(uploadedBytes, isNotNull);
-      final archive = ZipDecoder().decodeBytes(uploadedBytes!);
-      final metaEntry = archive.files.firstWhere((f) => f.name == 'freegosy_sync.txt');
-      final meta = jsonDecode(utf8.decode(metaEntry.content as List<int>)) as Map<String, dynamic>;
-      expect(meta.containsKey('contentHash'), isTrue);
-      expect(meta.containsKey('timeStamp'), isFalse);
+      final names = ZipDecoder().decodeBytes(uploadedBytes!).files.where((f) => f.isFile).map((f) => f.name);
+      expect(names, isNot(contains('freegosy_sync.txt')));
+      expect(names, contains('SLUS-12345/save.bin'));
+      expect(local, rommHashOfUpload(uploadedBytes!));
 
       await tempDir.delete(recursive: true);
     });
@@ -907,7 +905,7 @@ void main() {
       await tempDir.delete(recursive: true);
     });
 
-    test('pull skips restoreSave when the cloud bundle content hash matches local', () async {
+    test('pull: RomM\'s copy of the save on this PC is kept as it is', () async {
       final tempDir = await setUpPcsx2Fixture('LOCAL_UNCHANGED');
       final romPath = p.join(tempDir.path, 'Ico (SLUS-12345).iso');
       Uint8List? uploadedBytes;
@@ -915,24 +913,39 @@ void main() {
       await service.pushSaves(pcsx2Game(), romPath);
       expect(uploadedBytes, isNotNull);
 
-      when(mockRommService.getLatestSave(any, deviceId: anyNamed('deviceId')))
-          .thenAnswer((_) async => {
-                'download_path': 'https://example.test/save.zip',
-                'file_name': 'Ico (SLUS-12345).zip',
-                'device_syncs': <dynamic>[],
-              });
+      when(mockRommService.getLatestSave(any, deviceId: anyNamed('deviceId'))).thenAnswer((_) async => {
+            'download_path': 'https://example.test/save.zip',
+            'file_name': 'Ico (SLUS-12345).zip',
+            'device_syncs': <dynamic>[],
+          });
+      when(mockRommService.downloadSave(any, deviceId: anyNamed('deviceId'))).thenAnswer((_) async => uploadedBytes);
+
+      await service.pullSave(pcsx2Game(), romPath);
+
+      expect(await File(await localSaveFilePath(tempDir)).readAsString(), 'LOCAL_UNCHANGED');
+      await tempDir.delete(recursive: true);
+    });
+
+    test('pull: an old bundle whose freegosy_sync.txt hash matches is still skipped', () async {
+      final tempDir = await setUpPcsx2Fixture('LOCAL_UNCHANGED');
+      final romPath = p.join(tempDir.path, 'Ico (SLUS-12345).iso');
+      // An upload from before plain zips: freegosy_sync.txt holds the
+      // saveContentHash of the folder it zips (name bytes, then file bytes).
+      final oldHash = md5.convert([...utf8.encode('SLUS-12345/save.bin'), ...utf8.encode('LOCAL_UNCHANGED')]).toString();
+      final old = Archive()
+        ..addFile(ArchiveFile.string('freegosy_sync.txt', jsonEncode({'contentHash': oldHash})))
+        ..addFile(ArchiveFile.string('SLUS-12345/save.bin', 'LOCAL_UNCHANGED'));
+
+      when(mockRommService.getLatestSave(any, deviceId: anyNamed('deviceId'))).thenAnswer((_) async => {
+            'download_path': 'https://example.test/save.zip',
+            'file_name': 'Ico (SLUS-12345).zip',
+            'device_syncs': <dynamic>[],
+          });
       when(mockRommService.downloadSave(any, deviceId: anyNamed('deviceId')))
-          .thenAnswer((_) async => uploadedBytes);
+          .thenAnswer((_) async => Uint8List.fromList(ZipEncoder().encode(old)));
 
-      final ok = await service.pullSave(pcsx2Game(), romPath);
-
-      expect(ok, isFalse, reason: 'content already matches — should be a no-op');
-      expect(
-        await File(await localSaveFilePath(tempDir)).readAsString(),
-        'LOCAL_UNCHANGED',
-        reason: 'local save should be untouched since content already matched',
-      );
-
+      expect(await service.pullSave(pcsx2Game(), romPath), isFalse);
+      expect(await File(await localSaveFilePath(tempDir)).readAsString(), 'LOCAL_UNCHANGED');
       await tempDir.delete(recursive: true);
     });
 

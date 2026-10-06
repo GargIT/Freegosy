@@ -215,6 +215,8 @@ void main() {
       expect(filenames.any((name) => name.endsWith('save1.dat')), isTrue);
       expect(filenames.any((name) => name.endsWith('save2.dat')), isTrue);
       expect(filenames.any((name) => name.endsWith('freegosy_sync.txt')), isTrue);
+      final meta = archive.firstWhere((e) => e.name.endsWith('freegosy_sync.txt'));
+      expect(String.fromCharCodes(meta.content as List<int>), isNot(contains('contentHash')));
       
       await tempDir.delete(recursive: true);
     });

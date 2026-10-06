@@ -453,7 +453,7 @@ class SaveSyncService {
   /// RomM's hash of [filesMap] as a push uploads it: one file by itself (a
   /// zip by its contents), several as the zip a push builds, in its order:
   /// files by name (two of one name both count), folders as `<folder>/<path>`,
-  /// then the metadata; each file read as a stream.
+  /// then the metadata, if the bundle has any; each file read as a stream.
   Future<String?> _rommHashOfFiles(
       SaveStrategy strategy, Game game, String romPath, Map<io.File, io.File?> filesMap) async {
     final keys = filesMap.keys.toList();
@@ -461,8 +461,8 @@ class SaveSyncService {
       return rommHashOfSaveFile(keys.single);
     }
     final files = await bundleFileDigests(keys);
-    final meta = await _bundleMetadata(strategy, game, romPath, filesMap);
-    files.add(('freegosy_sync.txt', md5.convert(utf8.encode(meta)).toString()));
+    final meta = await _bundleMetadata(strategy, game, romPath);
+    if (meta != null) files.add(('freegosy_sync.txt', md5.convert(utf8.encode(meta)).toString()));
     return rommHashOfDigests(files);
   }
 
@@ -525,36 +525,48 @@ class SaveSyncService {
     return matched;
   }
 
-  /// The `freegosy_sync.txt` of a bundle: the content hash of [filesMap]
-  /// (see saveContentHash) and, for a Windows game, where its saves go
-  /// (`savePath` with environment folders as placeholders). No times: an
-  /// unchanged save gives the same bundle, and so the same RomM content_hash.
-  Future<String> _bundleMetadata(SaveStrategy strategy, Game game, String romPath, Map<io.File, io.File?> filesMap) async {
-    final meta = <String, String>{'contentHash': await saveContentHash(filesMap)};
-    if (strategy.strategyId == 'windows') {
-      final saveAbsolutePath = await strategy.getSaveDir(game, romPath) ?? '';
-      final winLocalAbsolutepath = <String, String>{
-        "['APPDATA']": PlatformInfo.current.environment['APPDATA'] ?? '',
-        "['LOCALAPPDATA']": PlatformInfo.current.environment['LOCALAPPDATA'] ?? '',
-        "['USERPROFILE']": PlatformInfo.current.environment['USERPROFILE'] ?? '',
-        "['PROGRAMDATA']": PlatformInfo.current.environment['PROGRAMDATA'] ?? '',
-        "['PUBLIC']": PlatformInfo.current.environment['PUBLIC'] ?? '',
-        "[GAMEDIR]": romPath,
-      };
-      var envPath = '';
-      for (final entry in winLocalAbsolutepath.entries) {
-        if (saveAbsolutePath.contains(entry.value)) {
-          envPath = saveAbsolutePath.replaceFirst(entry.value, entry.key);
-          break;
-        }
+  /// The `freegosy_sync.txt` a bundle carries, or null for none. Only a
+  /// Windows game has one: where its saves go (`savePath`, with environment
+  /// folders as placeholders), which nothing else in the zip says. Other
+  /// bundles are plain zips, as other RomM clients upload; RomM's own
+  /// content_hash tells an unchanged save.
+  Future<String?> _bundleMetadata(SaveStrategy strategy, Game game, String romPath) async {
+    if (strategy.strategyId != 'windows') return null;
+    final saveAbsolutePath = await strategy.getSaveDir(game, romPath) ?? '';
+    final winLocalAbsolutepath = <String, String>{
+      "['APPDATA']": PlatformInfo.current.environment['APPDATA'] ?? '',
+      "['LOCALAPPDATA']": PlatformInfo.current.environment['LOCALAPPDATA'] ?? '',
+      "['USERPROFILE']": PlatformInfo.current.environment['USERPROFILE'] ?? '',
+      "['PROGRAMDATA']": PlatformInfo.current.environment['PROGRAMDATA'] ?? '',
+      "['PUBLIC']": PlatformInfo.current.environment['PUBLIC'] ?? '',
+      "[GAMEDIR]": romPath,
+    };
+    var envPath = '';
+    for (final entry in winLocalAbsolutepath.entries) {
+      if (saveAbsolutePath.contains(entry.value)) {
+        envPath = saveAbsolutePath.replaceFirst(entry.value, entry.key);
+        break;
       }
-      meta['savePath'] = envPath;
     }
-    return jsonEncode(meta);
+    return jsonEncode({'savePath': envPath});
+  }
+
+  /// Adds [_bundleMetadata] to a bundle being built, when there is any.
+  Future<void> _addBundleMetadata(
+      ZipFileEncoder encoder, String tempDir, int bundleToken, SaveStrategy strategy, Game game, String romPath) async {
+    final meta = await _bundleMetadata(strategy, game, romPath);
+    if (meta == null) return;
+    // Scoped to this call's bundleToken: a shared file name would race with a
+    // concurrent push/pull in the same temp folder.
+    final metaFile = io.File(p.join(tempDir, 'freegosy_sync.$bundleToken.txt'));
+    await metaFile.writeAsString(meta);
+    await encoder.addFile(metaFile, 'freegosy_sync.txt');
+    await metaFile.delete();
   }
 
   /// Reads the `contentHash` field out of a downloaded bundle's
-  /// `freegosy_sync.txt`, if [bytes] is a zip and that entry/field exists.
+  /// `freegosy_sync.txt` (bundles uploaded before plain zips), if [bytes] is
+  /// a zip and that entry/field exists.
   /// Returns null for anything else (not a zip, no metadata entry, or a
   /// legacy timeStamp-only metadata format) so callers can fall through to
   /// an unconditional restore.
@@ -1147,14 +1159,7 @@ class SaveSyncService {
         final bundleZipPath = p.join(tempDir, '$displayStem.bundle.$bundleToken.zip');
         final encoder = ZipFileEncoder();
         encoder.create(bundleZipPath);
-        // Scoped to this call's bundleToken — a shared literal filename here
-        // would race with any other concurrent push/pull writing/deleting
-        // the same path in the same temp directory.
-        final metaFile = io.File(p.join(tempDir, 'freegosy_sync.$bundleToken.txt'));
-
-        await metaFile.writeAsString(await _bundleMetadata(strategy, game, romPath, filesMap));
-        await encoder.addFile(metaFile, 'freegosy_sync.txt');
-        await metaFile.delete();
+        await _addBundleMetadata(encoder, tempDir, bundleToken, strategy, game, romPath);
         for (final entry in filesMap.entries) {
           final file = entry.key;
           if (await io.FileSystemEntity.isDirectory(file.path)) {
@@ -1321,11 +1326,10 @@ class SaveSyncService {
       debugPrint('[SaveSync] [pull] Downloaded ${bytes.length} bytes → restoring as "$adjustedFilename"');
 
       // Skip the restore entirely when the cloud bundle's freegosy_sync.txt
-      // carries a contentHash (written by strategies that opt into it, e.g.
-      // PCSX2 — see _devicePushSaves) that already matches what's on disk.
-      // Generic to any strategy's metadata format: a legacy timeStamp-only
-      // bundle has no contentHash key, so this simply falls through to an
-      // unconditional restore exactly as before.
+      // carries a contentHash that already matches what's on disk. Only
+      // bundles uploaded before plain zips have one (bundles now carry no
+      // metadata, or only a Windows savePath); a bundle without the key falls
+      // through to the RomM-hash check and the restore below.
       if (adjustedFilename.toLowerCase().endsWith('.zip')) {
         final cloudContentHash = _readBundleContentHash(bytes);
         if (cloudContentHash != null) {
@@ -1495,14 +1499,8 @@ class SaveSyncService {
         final encoder = ZipFileEncoder();
         encoder.create(bundleZipPath);
 
-        // 1. Write sync metadata (only for bundles to help with multi-file coherence).
-        // Scoped to this call's bundleToken — a shared literal filename here
-        // would race with any other concurrent push/pull writing/deleting
-        // the same path in the same temp directory.
-        final metaFile = io.File(p.join(tempDir, 'freegosy_sync.$bundleToken.txt'));
-        await metaFile.writeAsString(await _bundleMetadata(strategy, game, romPath, filesMap));
-        await encoder.addFile(metaFile, 'freegosy_sync.txt');
-        await metaFile.delete();
+        // 1. Metadata, for the bundles that carry any (Windows games).
+        await _addBundleMetadata(encoder, tempDir, bundleToken, strategy, game, romPath);
 
         // 2. Add all files/folders from the map
         for (final entry in filesMap.entries) {

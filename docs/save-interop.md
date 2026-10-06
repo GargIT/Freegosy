@@ -22,10 +22,15 @@ For reference when reading the matrices:
 
 - **Upload**: the emulator's save strategy (`lib/core/save/strategies/`) lists
   the files for the game (`getSaveFilesWithScreenshots`). One file is uploaded
-  under its own name; several go up as one zip. Game saves are tagged on RomM
+  under its own name; several go up as one plain zip (only a Windows game's zip
+  also holds `freegosy_sync.txt`, with `savePath`). Game saves are tagged on RomM
   with the emulator that made them: the RetroArch core without `_libretro`
   (e.g. `pcsx_rearmed`, as RomM's web player and Argosy name it), otherwise the
   emulator (e.g. `pcsx2`, `duckstation`), in the `freegosy` slot.
+- **Game ids**: with RomM 5.3+, Freegosy finds a game's saves by the id RomM
+  read from the ROM (`title_id`, `save_target`) and reads the ROM itself only
+  when RomM has none (older server, ROM scanned before the upgrade, a platform
+  RomM doesn't identify).
 - **Download**: Freegosy takes RomM's **newest save for the game, whoever
   uploaded it** (`RommService.getLatestSave`; neither the tag nor the slot is
   checked). A save RetroArch compressed (RZIP, "SaveRAM compression") is

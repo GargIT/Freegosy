@@ -90,6 +90,16 @@ void main() {
           filesOf(ac5));
     });
 
+    test("RomM's serial is used before the ROM is read", () async {
+      strategy.ps2SerialOverride = ((_) async => fail('the ROM must not be read when RomM has the serial'));
+      mcd(1).writeAsBytesSync(card([gt4, ac5, ratchet]));
+      final fromRomm = Game(
+          id: '77', name: 'Ace Combat 5', fsName: 'Ace Combat 5 (USA).chd', platformSlug: 'ps2', fileSize: 0,
+          titleId: 'SLUS-20851');
+      final files = await strategy.getSaveFilesWithScreenshots(fromRomm, romPath, syncMode: 'saves');
+      expect(files.keys.map((f) => p.basename(f.path)), ['BASLUS-20851AC5']);
+    });
+
     test('saves on the second card are found too', () async {
       mcd(1).writeAsBytesSync(card([gt4]));
       mcd(2).writeAsBytesSync(card([ac5]));
